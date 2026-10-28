@@ -1,0 +1,823 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0f14">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Copiloto</title>
+<style>
+:root{
+  --bg:#0b0f14;--card:#141b23;--card2:#1b2430;--line:#263241;
+  --tx:#e8eef5;--mut:#8a99ab;--ok:#2ecc71;--warn:#f5b800;--bad:#ff3b3b;--acc:#3aa0ff;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{padding-bottom:calc(76px + env(safe-area-inset-bottom))}
+header{padding:calc(12px + env(safe-area-inset-top)) 16px 8px;display:flex;align-items:center;justify-content:space-between}
+header h1{font-size:18px;margin:0;letter-spacing:.5px}
+.pill{font-size:12px;padding:4px 10px;border-radius:99px;background:var(--card2);color:var(--mut)}
+.pill.on{background:#123b24;color:var(--ok)}
+main{padding:0 16px}
+section{display:none}section.act{display:block}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:12px}
+h2{font-size:15px;margin:0 0 10px;color:var(--mut);font-weight:600;text-transform:uppercase;letter-spacing:.6px}
+label{display:block;font-size:13px;color:var(--mut);margin:10px 0 6px}
+input,select{width:100%;font-size:17px;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--card2);color:var(--tx);outline:none}
+input:focus,select:focus{border-color:var(--acc)}
+button{font:inherit;font-size:16px;font-weight:600;border:0;border-radius:12px;padding:14px;width:100%;background:var(--card2);color:var(--tx);cursor:pointer}
+button.pri{background:var(--acc);color:#fff}
+button.go{background:var(--ok);color:#06210f;font-size:19px;padding:18px}
+button.stop{background:var(--bad);color:#fff;font-size:19px;padding:18px}
+button:disabled{opacity:.45}
+.row{display:flex;gap:10px}.row>*{flex:1}
+.mt{margin-top:10px}
+.small{font-size:13px;color:var(--mut);line-height:1.45}
+/* velocímetro */
+#speedBox{text-align:center;border-radius:20px;padding:22px 10px 16px;background:var(--card);border:2px solid var(--line);transition:background .2s,border-color .2s}
+#speedBox.over{background:#3a0b0b;border-color:var(--bad);animation:pisca .8s infinite}
+@keyframes pisca{50%{background:#5c1010}}
+#speed{font-size:104px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+#speedUnit{color:var(--mut);font-size:16px}
+#limBadge{display:inline-flex;align-items:center;justify-content:center;width:64px;height:64px;border-radius:50%;border:7px solid var(--bad);background:#fff;color:#111;font-weight:800;font-size:24px;margin-top:10px}
+#limBadge.none{opacity:.15}
+#radarCard .big{font-size:30px;font-weight:800;color:var(--tx)}
+.bar{height:10px;background:var(--card2);border-radius:99px;overflow:hidden;margin-top:10px}
+.bar>div{height:100%;width:0;background:var(--warn);transition:width .3s}
+#gpsInfo{display:flex;justify-content:space-between;font-size:12px;color:var(--mut);margin-top:10px}
+/* navegação */
+nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:#0f151c;border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+nav button{background:none;border-radius:0;color:var(--mut);font-size:12px;padding:10px 0 12px;display:flex;flex-direction:column;align-items:center;gap:3px}
+nav button svg{width:24px;height:24px}
+nav button.act{color:var(--acc)}
+/* listas */
+.item{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--line)}
+.item:last-child{border-bottom:0}
+.item b{display:block}
+.item .val{font-weight:800;color:var(--ok);white-space:nowrap}
+.x{width:auto;padding:8px 12px;font-size:13px}
+.placa{display:inline-block;background:#fff;color:#111;border:3px solid #1a3b8f;border-top-width:10px;border-radius:8px;padding:4px 14px;font-size:30px;font-weight:800;letter-spacing:3px;font-family:"Courier New",monospace}
+.res{font-size:28px;font-weight:800;color:var(--ok);margin:6px 0}
+.msg{padding:10px 12px;border-radius:10px;background:var(--card2);font-size:14px;margin-top:10px}
+.msg.err{background:#3a1212;color:#ffb3b3}
+.msg.ok{background:#0f2e1c;color:#9ff0bd}
+input[type=range]{padding:0;height:36px;background:none;border:0;accent-color:var(--acc)}
+.sw{display:flex;justify-content:space-between;align-items:center;padding:10px 0}
+.sw input{width:24px;height:24px;accent-color:var(--acc)}
+/* modal */
+#modal{position:fixed;inset:0;background:#000b;display:none;align-items:flex-end;z-index:9}
+#modal.on{display:flex}
+#modal .card{width:100%;margin:0;border-radius:20px 20px 0 0;padding-bottom:calc(16px + env(safe-area-inset-bottom))}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.grid button{font-size:20px;padding:16px 0}
+</style>
+</head>
+<body>
+<header>
+  <h1>🚗 Copiloto</h1>
+  <span id="statusPill" class="pill">parado</span>
+</header>
+
+<main>
+<!-- ================= RADAR ================= -->
+<section id="tab-radar" class="act">
+  <div id="speedBox">
+    <div id="speed">--</div>
+    <div id="speedUnit">km/h</div>
+    <div id="limBadge" class="none">--</div>
+  </div>
+
+  <div class="card mt" id="radarCard">
+    <h2>Próximo radar</h2>
+    <div id="radarTxt" class="small">Toque em “Iniciar viagem”.</div>
+    <div class="bar"><div id="radarBar"></div></div>
+    <div id="gpsInfo"><span id="gpsAcc">GPS: --</span><span id="radCount">0 radares</span></div>
+  </div>
+
+  <div id="permWarn" class="msg err" style="display:none;margin-bottom:12px">Para o radar ligar sozinho, falta liberar permissões. <b>Toque aqui.</b></div>
+  <button id="btnStart" class="go">▶ Iniciar viagem</button>
+  <button id="btnMark" class="mt" disabled>📍 Marcar radar aqui</button>
+  <p class="small mt" id="radarHint">Mantenha a tela ligada (o app tenta travar a tela acesa sozinho). Use o celular num suporte e não mexa nele dirigindo.</p>
+</section>
+
+<!-- ================= PLACA ================= -->
+<section id="tab-placa">
+  <div class="card">
+    <h2>Consultar placa</h2>
+    <input id="inPlaca" maxlength="8" placeholder="ABC1D23 ou ABC-1234" autocapitalize="characters" autocomplete="off">
+    <div id="placaOut"></div>
+  </div>
+
+  <div class="card">
+    <h2>Histórico</h2>
+    <div id="hist" class="small">Nenhuma placa salva ainda.</div>
+  </div>
+</section>
+
+<!-- ================= FIPE ================= -->
+<section id="tab-fipe">
+  <div class="card">
+    <h2>Por código FIPE</h2>
+    <div class="row">
+      <input id="inCod" placeholder="ex.: 005340-6" inputmode="numeric">
+      <button id="btnCod" class="pri" style="flex:0 0 96px">Buscar</button>
+    </div>
+    <div id="codOut"></div>
+  </div>
+
+  <div class="card">
+    <h2>Por marca e modelo</h2>
+    <label>Tipo</label>
+    <select id="selTipo">
+      <option value="carros">Carro</option>
+      <option value="motos">Moto</option>
+      <option value="caminhoes">Caminhão</option>
+    </select>
+    <label>Marca</label>
+    <select id="selMarca"><option>Carregando…</option></select>
+    <label>Modelo</label>
+    <input id="fltModelo" placeholder="Filtrar modelo (ex.: onix 1.0)" disabled>
+    <select id="selModelo" class="mt" disabled><option>—</option></select>
+    <label>Ano</label>
+    <select id="selAno" disabled><option>—</option></select>
+    <div id="fipeOut"></div>
+  </div>
+</section>
+
+<!-- ================= AJUSTES ================= -->
+<section id="tab-config">
+  <div class="card" id="autoCard" style="display:none">
+    <h2>Modo automático</h2>
+    <div class="sw"><span>Ligar o radar sozinho quando eu estiver de carro</span><input type="checkbox" id="cfgAuto"></div>
+    <div id="permInfo" class="small"></div>
+    <button id="btnPerm" class="pri mt">Configurar permissões</button>
+    <p class="small mt">O app percebe que você está de carro em 1 a 2 minutos de viagem e desliga sozinho 5 minutos depois que você estaciona.</p>
+  </div>
+  <div class="card">
+    <h2>Alertas</h2>
+    <label>Avisar radar a <b id="vDist">500</b> m de distância</label>
+    <input type="range" id="cfgDist" min="100" max="1500" step="50">
+    <label>Avisar excesso acima de limite + <b id="vTol">0</b> km/h</label>
+    <input type="range" id="cfgTol" min="0" max="10" step="1">
+    <div class="sw"><span>Aviso por voz</span><input type="checkbox" id="cfgVoz"></div>
+    <div class="sw"><span>Bip</span><input type="checkbox" id="cfgBip"></div>
+    <div class="sw"><span>Velocímetro mostra +3% (igual ao painel)</span><input type="checkbox" id="cfgPainel"></div>
+    <button id="btnTeste" class="mt">🔊 Testar som</button>
+  </div>
+
+  <div class="card">
+    <h2>Base de radares</h2>
+    <div id="baseInfo" class="small"></div>
+    <button id="btnAntt" class="pri mt">⬇ Atualizar radares das rodovias (ANTT)</button>
+    <button id="btnOsm" class="pri mt">🗺 Baixar radares da minha região (OpenStreetMap)</button>
+    <div class="sw"><span>Atualizar OpenStreetMap sozinho durante a viagem</span><input type="checkbox" id="cfgOsm"></div>
+    <label>Importar outra base (CSV ou GPX)</label>
+    <input type="file" id="fileImp" accept=".csv,.txt,.gpx">
+    <div class="row mt">
+      <button id="btnExp">Exportar meus radares</button>
+      <button id="btnLimpar">Apagar meus radares</button>
+    </div>
+    <div id="baseMsg"></div>
+    <p class="small mt">CSV aceito: com cabeçalho (latitude, longitude, limite/velocidade) ou no padrão X,Y,TIPO,VELOCIDADE usado por bases de GPS. Importar de novo substitui a importação anterior.</p>
+  </div>
+</section>
+</main>
+
+<nav>
+  <button data-tab="radar" class="act"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="13" r="8"/><path d="M12 13l4-4"/></svg>Radar</button>
+  <button data-tab="placa"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="10" rx="2"/><path d="M6 12h3M12 12h6"/></svg>Placa</button>
+  <button data-tab="fipe"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 6H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>FIPE</button>
+  <button data-tab="config"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>Ajustes</button>
+</nav>
+
+<div id="modal">
+  <div class="card">
+    <h2>Limite deste radar</h2>
+    <div class="grid" id="limGrid"></div>
+    <button id="btnCancel" class="mt">Cancelar</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ============ utilidades ============ */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const NATIVE = typeof window.Android !== "undefined";
+const LS = {
+  get(k, d){ try{ const v = NATIVE ? Android.getItem(k) : localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } },
+  set(k, v){ try{ const s = JSON.stringify(v); NATIVE ? Android.setItem(k, s) : localStorage.setItem(k, s); return true; }catch(e){ return false; } }
+};
+const _cbs = {}; let _cbn = 0;
+window.__httpCb = (id, status, b64) => {
+  const c = _cbs[id]; delete _cbs[id]; if (!c) return;
+  let t = "";
+  try{ const bin = atob(b64); t = new TextDecoder("utf-8").decode(Uint8Array.from(bin, ch => ch.charCodeAt(0))); }catch(e){}
+  (status >= 200 && status < 300) ? c.res(t) : c.rej(new Error(status ? "HTTP " + status : "sem conexão"));
+};
+// No app Android as requisições saem pelo próprio celular (sem bloqueio de CORS).
+function httpText(url, opt = {}){
+  if (NATIVE) return new Promise((res, rej) => { const id = ++_cbn; _cbs[id] = {res, rej}; Android.http(opt.method || "GET", url, opt.body || "", opt.type || "", id); });
+  const init = opt.method ? {method: opt.method, body: opt.body, headers: opt.type ? {"Content-Type": opt.type} : {}} : {};
+  return fetch(url, init).then(async r => { if (!r.ok) throw new Error("HTTP " + r.status); return decode(await r.arrayBuffer()); });
+}
+const cfg = Object.assign({dist:500, tol:0, voz:true, bip:true, painel:false, osm:true, auto:true}, LS.get("cfg", {}));
+const saveCfg = () => LS.set("cfg", cfg);
+
+let radAntt = LS.get("radAntt", []);   // {lat,lon,lim,desc}
+let radImp  = LS.get("radImp", []);
+let radMeus = LS.get("radMeus", []);   // {lat,lon,lim,desc,dir}
+let radOsm  = LS.get("radOsm", []);    // OpenStreetMap (região atual)
+const allRadars = () => radAntt.concat(radOsm, radImp, radMeus);
+
+const toRad = d => d * Math.PI / 180;
+function dist(a1, o1, a2, o2){
+  const R = 6371000, dA = toRad(a2 - a1), dO = toRad(o2 - o1);
+  const h = Math.sin(dA/2)**2 + Math.cos(toRad(a1))*Math.cos(toRad(a2))*Math.sin(dO/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+function bearing(a1, o1, a2, o2){
+  const y = Math.sin(toRad(o2-o1))*Math.cos(toRad(a2));
+  const x = Math.cos(toRad(a1))*Math.sin(toRad(a2)) - Math.sin(toRad(a1))*Math.cos(toRad(a2))*Math.cos(toRad(o2-o1));
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+const angDiff = (a, b) => { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; };
+const num = v => { if (v == null) return NaN; return parseFloat(String(v).trim().replace(",", ".")); };
+
+/* ============ som e voz ============ */
+let actx = null;
+function beep(freq = 880, dur = .15, vol = .35){
+  if (!cfg.bip || !actx) return;
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = "square"; o.frequency.value = freq; g.gain.value = vol;
+  o.connect(g); g.connect(actx.destination);
+  o.start(); o.stop(actx.currentTime + dur);
+}
+let vozPt = null;
+function pickVoice(){ const vs = speechSynthesis.getVoices(); vozPt = vs.find(v => /pt[-_]BR/i.test(v.lang)) || vs.find(v => /^pt/i.test(v.lang)) || null; }
+if ("speechSynthesis" in window){ pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
+function speak(t){
+  if (!cfg.voz || !("speechSynthesis" in window)) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(t); u.lang = "pt-BR"; if (vozPt) u.voice = vozPt; u.rate = 1.05;
+  speechSynthesis.speak(u);
+}
+function vibrate(p){ if (navigator.vibrate) navigator.vibrate(p); }
+
+/* ============ abas ============ */
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.toggle("act", x === b));
+  document.querySelectorAll("main section").forEach(s => s.classList.toggle("act", s.id === "tab-" + b.dataset.tab));
+  window.scrollTo(0, 0);
+});
+
+/* ============ RADAR / VIAGEM ============ */
+let watchId = null, prev = null, anchor = null, heading = null, lastPos = null, wake = null;
+const alerted = new Map();      // id -> timestamp do aviso de aproximação
+const overSpoken = new Map();   // id -> timestamp do aviso de excesso
+let lastBeep = 0;
+const rid = r => r.lat.toFixed(5) + "," + r.lon.toFixed(5);
+
+async function reqWake(){
+  try{ if ("wakeLock" in navigator && document.visibilityState === "visible") wake = await navigator.wakeLock.request("screen"); }catch(e){}
+}
+document.addEventListener("visibilitychange", () => { if (watchId !== null && document.visibilityState === "visible") reqWake(); });
+
+function startTrip(){
+  if (!("geolocation" in navigator)){ alert("Este aparelho não tem GPS disponível no navegador."); return; }
+  try{ actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); }catch(e){}
+  prev = anchor = null; heading = null; alerted.clear(); overSpoken.clear();
+  watchId = navigator.geolocation.watchPosition(onPos, onErr, {enableHighAccuracy:true, maximumAge:0, timeout:20000});
+  reqWake();
+  speak("Viagem iniciada. " + allRadars().length + " radares carregados.");
+  $("#btnStart").className = "stop"; $("#btnStart").textContent = "■ Encerrar viagem";
+  $("#btnMark").disabled = false;
+  $("#statusPill").className = "pill on"; $("#statusPill").textContent = "rodando";
+  $("#radarTxt").textContent = "Aguardando sinal do GPS…";
+}
+function stopTrip(){
+  if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+  watchId = null;
+  try{ wake && wake.release(); }catch(e){} wake = null;
+  $("#btnStart").className = "go"; $("#btnStart").textContent = "▶ Iniciar viagem";
+  $("#btnMark").disabled = true;
+  $("#statusPill").className = "pill"; $("#statusPill").textContent = "parado";
+  $("#speed").textContent = "--"; $("#speedBox").classList.remove("over");
+  $("#limBadge").className = "none"; $("#limBadge").textContent = "--";
+  $("#radarTxt").textContent = "Toque em “Iniciar viagem”."; $("#radarBar").style.width = "0";
+}
+$("#btnStart").onclick = () => watchId === null ? startTrip() : stopTrip();
+
+function onErr(e){
+  const m = {1:"Permissão de localização negada. Libere a localização para este site.", 2:"Sem sinal de GPS.", 3:"GPS demorando para responder…"};
+  $("#radarTxt").textContent = m[e.code] || "Erro no GPS.";
+}
+
+function onPos(p){
+  const c = p.coords, lat = c.latitude, lon = c.longitude, t = p.timestamp || Date.now();
+  let kmh = (c.speed != null && !isNaN(c.speed)) ? c.speed * 3.6 : null;
+  if (prev){
+    const d = dist(prev.lat, prev.lon, lat, lon), dt = (t - prev.t) / 1000;
+    if (kmh == null && dt > 0.5) kmh = d / dt * 3.6;
+  }
+  prev = {lat, lon, t};
+  if (!anchor) anchor = {lat, lon};
+  else if (dist(anchor.lat, anchor.lon, lat, lon) > 12){ heading = bearing(anchor.lat, anchor.lon, lat, lon); anchor = {lat, lon}; }
+  if (c.heading != null && !isNaN(c.heading) && (c.speed || 0) > 2) heading = c.heading;
+  if (kmh == null || kmh < 2) kmh = 0;
+  lastPos = {lat, lon, heading};
+  if (cfg.osm) autoOsm(lat, lon);
+
+  const show = cfg.painel ? kmh * 1.03 : kmh;
+  $("#speed").textContent = Math.round(show);
+  $("#gpsAcc").textContent = "GPS: ±" + Math.round(c.accuracy) + " m";
+  checkRadars(lat, lon, kmh);
+}
+
+function checkRadars(lat, lon, kmh){
+  const now = Date.now(), maxD = cfg.dist + 300;
+  for (const [k, ts] of alerted) if (now - ts > 240000) alerted.delete(k);
+  for (const [k, ts] of overSpoken) if (now - ts > 240000) overSpoken.delete(k);
+
+  const dLat = maxD / 111000, dLon = dLat / Math.max(.2, Math.cos(toRad(lat)));
+  let best = null;
+  for (const r of allRadars()){
+    if (Math.abs(r.lat - lat) > dLat || Math.abs(r.lon - lon) > dLon) continue;
+    const d = dist(lat, lon, r.lat, r.lon);
+    if (d > maxD) continue;
+    if (heading != null && kmh > 10){
+      // só radares à frente
+      if (d > 35 && angDiff(bearing(lat, lon, r.lat, r.lon), heading) > 50) continue;
+      // radar marcado por você: só no mesmo sentido em que foi marcado
+      if (r.dir != null && angDiff(r.dir, heading) > 60) continue;
+    }
+    if (!best || d < best.d) best = {r, d};
+  }
+
+  const box = $("#speedBox"), badge = $("#limBadge");
+  if (!best || best.d > cfg.dist){
+    box.classList.remove("over");
+    badge.className = "none"; badge.textContent = "--";
+    $("#radarTxt").innerHTML = best
+      ? `Radar a ${Math.round(best.d)} m (fora do raio de aviso)`
+      : "Nenhum radar à frente no raio de " + cfg.dist + " m.";
+    $("#radarBar").style.width = "0";
+    return;
+  }
+  const r = best.r, id = rid(r), lim = r.lim || null;
+  badge.className = lim ? "" : "none"; badge.textContent = lim || "?";
+  $("#radarTxt").innerHTML = `<div class="big">${Math.round(best.d)} m</div>${lim ? "Limite " + lim + " km/h" : "Limite não informado"} · ${esc(r.desc || "radar")}`;
+  $("#radarBar").style.width = Math.max(0, Math.min(100, 100 - best.d / cfg.dist * 100)) + "%";
+
+  if (!alerted.has(id)){
+    alerted.set(id, now);
+    beep(880, .12); setTimeout(() => beep(880, .12), 180);
+    vibrate([150, 80, 150]);
+    const m = Math.max(50, Math.round(best.d / 50) * 50);
+    speak(`Radar em ${m} metros.` + (lim ? ` Limite ${lim}.` : ""));
+  }
+
+  const over = lim && kmh > lim + cfg.tol;
+  box.classList.toggle("over", !!over);
+  if (over){
+    if (now - lastBeep > 1400){ beep(1500, .25, .5); vibrate(300); lastBeep = now; }
+    if (!overSpoken.has(id)){ overSpoken.set(id, now); setTimeout(() => speak(`Reduza! Limite ${lim}.`), 900); }
+  }
+}
+
+/* ---- marcar radar ---- */
+const LIMS = [20,30,40,50,60,70,80,90,100,110,120,0];
+$("#limGrid").innerHTML = LIMS.map(l => `<button data-l="${l}">${l || "?"}</button>`).join("");
+$("#btnMark").onclick = () => { if (!lastPos){ alert("Aguarde o sinal do GPS."); return; } $("#modal").classList.add("on"); };
+$("#btnCancel").onclick = () => $("#modal").classList.remove("on");
+$("#limGrid").onclick = e => {
+  const b = e.target.closest("button"); if (!b || !lastPos) return;
+  const l = +b.dataset.l;
+  radMeus.push({lat:lastPos.lat, lon:lastPos.lon, lim:l || null, desc:"marcado por você", dir: lastPos.heading != null ? Math.round(lastPos.heading) : null});
+  LS.set("radMeus", radMeus);
+  $("#modal").classList.remove("on");
+  beep(660, .1); speak("Radar salvo.");
+  renderBase();
+};
+
+/* ============ BASE DE RADARES ============ */
+function renderBase(){
+  const tot = allRadars().length;
+  $("#radCount").textContent = tot + " radares";
+  const dt = LS.get("anttData", null);
+  $("#baseInfo").innerHTML =
+    `Rodovias (ANTT): <b>${radAntt.length}</b>${dt ? " · atualizado " + new Date(dt).toLocaleDateString("pt-BR") : ""}<br>` +
+    `OpenStreetMap (região): <b>${radOsm.length}</b>${osmArea ? " · atualizado " + new Date(osmArea.t).toLocaleDateString("pt-BR") : ""}<br>` +
+    `Importados: <b>${radImp.length}</b><br>Marcados por você: <b>${radMeus.length}</b>`;
+}
+function baseMsg(t, cls){ $("#baseMsg").innerHTML = `<div class="msg ${cls || ""}">${esc(t)}</div>`; }
+
+function decode(buf){
+  let t = new TextDecoder("utf-8").decode(buf);
+  if (t.includes("�")) t = new TextDecoder("iso-8859-1").decode(buf);
+  return t.replace(/^﻿/, "");
+}
+function splitLine(line, sep){
+  const out = []; let cur = "", q = false;
+  for (const ch of line){
+    if (ch === '"') q = !q;
+    else if (ch === sep && !q){ out.push(cur); cur = ""; }
+    else cur += ch;
+  }
+  out.push(cur); return out.map(s => s.trim());
+}
+const inBR = (lat, lon) => lat > -35 && lat < 6.5 && lon > -75 && lon < -28;
+
+function parseCSV(txt){
+  const lines = txt.split(/\r?\n/).filter(l => l.trim() && !l.trim().startsWith(";") && !l.startsWith("#"));
+  if (!lines.length) return [];
+  const first = lines[0];
+  const sep = (first.split(";").length > first.split(",").length) ? ";" : (first.includes("\t") ? "\t" : ",");
+  const head = splitLine(first, sep).map(h => h.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""));
+  const hasHead = head.some(h => /[a-z]/.test(h) && isNaN(num(h)));
+  const res = [];
+  if (hasHead){
+    const find = re => head.findIndex(h => re.test(h));
+    let iLat = find(/^(lat|latitude|y)$/), iLon = find(/^(lon|lng|long|longitude|x)$/);
+    if (iLat < 0) iLat = find(/lat/); if (iLon < 0) iLon = find(/lon|lng/);
+    let iLim = find(/velocidade_leve/); if (iLim < 0) iLim = find(/^(speed|limite|velocidade|vel|lim|max)/);
+    const iSit = find(/situac|status/), iTipo = find(/tipo/), iRod = find(/rodovia|via|nome|name/), iKm = find(/^km/), iSent = find(/sentido/);
+    if (iLat < 0 || iLon < 0) throw new Error("Não achei colunas de latitude/longitude no arquivo.");
+    for (const l of lines.slice(1)){
+      const c = splitLine(l, sep);
+      if (iSit >= 0 && /inativ|desativ/i.test(c[iSit] || "")) continue;
+      const lat = num(c[iLat]), lon = num(c[iLon]); if (!inBR(lat, lon)) continue;
+      const lim = iLim >= 0 ? Math.round(num(c[iLim])) : NaN;
+      const desc = [iTipo >= 0 ? c[iTipo] : "", iRod >= 0 ? c[iRod] : "", iKm >= 0 && c[iKm] ? "km " + c[iKm] : "", iSent >= 0 ? c[iSent] : ""].filter(Boolean).join(" · ");
+      res.push({lat:+lat.toFixed(6), lon:+lon.toFixed(6), lim: lim > 0 && lim < 200 ? lim : null, desc: desc.slice(0, 80)});
+    }
+  } else {
+    // padrão GPS sem cabeçalho: X(lon),Y(lat),TIPO,VELOCIDADE,...
+    for (const l of lines){
+      const c = splitLine(l, sep); if (c.length < 2) continue;
+      let lon = num(c[0]), lat = num(c[1]);
+      if (!inBR(lat, lon) && inBR(lon, lat)) [lat, lon] = [lon, lat];
+      if (!inBR(lat, lon)) continue;
+      const lim = c.length > 3 ? Math.round(num(c[3])) : NaN;
+      res.push({lat:+lat.toFixed(6), lon:+lon.toFixed(6), lim: lim > 0 && lim < 200 ? lim : null, desc:"importado"});
+    }
+  }
+  return res;
+}
+function parseGPX(txt){
+  const doc = new DOMParser().parseFromString(txt, "application/xml");
+  return [...doc.querySelectorAll("wpt")].map(w => {
+    const lat = num(w.getAttribute("lat")), lon = num(w.getAttribute("lon"));
+    const name = (w.querySelector("name")?.textContent || "") + " " + (w.querySelector("desc")?.textContent || "");
+    const m = name.match(/\b(\d{2,3})\b/);
+    return {lat, lon, lim: m ? +m[1] : null, desc: name.trim().slice(0, 80) || "importado"};
+  }).filter(r => inBR(r.lat, r.lon));
+}
+// remove duplicados (mesmo ponto em até ~15 m)
+function dedupe(arr){
+  const seen = new Set(), out = [];
+  for (const r of arr){ const k = r.lat.toFixed(4) + "," + r.lon.toFixed(4); if (!seen.has(k)){ seen.add(k); out.push(r); } }
+  return out;
+}
+
+
+/* ---- OpenStreetMap (Overpass) — radares mapeados pela comunidade, cidades e estradas ---- */
+let osmArea = LS.get("osmArea", null), osmBusy = false;
+const CARD = {N:0,NNE:22,NE:45,ENE:67,E:90,ESE:112,SE:135,SSE:157,S:180,SSW:202,SW:225,WSW:247,W:270,WNW:292,NW:315,NNW:337};
+function osmDir(v){
+  if (v == null) return null;
+  const s = String(v).split(/[;,]/)[0].trim().toUpperCase();
+  if (CARD[s] != null) return CARD[s];
+  const n = parseFloat(s); return isNaN(n) ? null : ((n % 360) + 360) % 360;
+}
+async function loadOsm(lat, lon, raio = 0.4){   // ~45 km em volta
+  const bb = [lat - raio, lon - raio, lat + raio, lon + raio].map(x => x.toFixed(4)).join(",");
+  const q = `[out:json][timeout:25];(node["highway"="speed_camera"](${bb});node["enforcement"="maxspeed"](${bb}););out body;`;
+  const urls = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter"];
+  let data = null, lastErr = null;
+  for (const u of urls){
+    try{
+      data = JSON.parse(await httpText(u, {method:"POST", body:"data=" + encodeURIComponent(q), type:"application/x-www-form-urlencoded"}));
+      break;
+    }catch(e){ lastErr = e; }
+  }
+  if (!data) throw lastErr || new Error("sem resposta");
+  const list = data.elements.filter(e => e.lat != null).map(e => {
+    const t = e.tags || {}, lim = parseInt(t.maxspeed, 10);
+    return {lat:+e.lat.toFixed(6), lon:+e.lon.toFixed(6), lim: lim > 0 && lim < 200 ? lim : null,
+            desc: ("OSM " + (t.name || t.ref || "")).trim(), dir: osmDir(t.direction)};
+  });
+  radOsm = dedupe(list); osmArea = {lat, lon, t: Date.now()};
+  LS.set("radOsm", radOsm); LS.set("osmArea", osmArea);
+  renderBase();
+  return radOsm.length;
+}
+function autoOsm(lat, lon){
+  if (osmBusy || !navigator.onLine) return;
+  const longe = !osmArea || dist(lat, lon, osmArea.lat, osmArea.lon) > 25000;
+  const velho = osmArea && Date.now() - osmArea.t > 3 * 86400000;
+  if (!longe && !velho) return;
+  osmBusy = true;
+  loadOsm(lat, lon).catch(() => {}).finally(() => setTimeout(() => osmBusy = false, 60000));
+}
+$("#btnOsm").onclick = () => {
+  const b = $("#btnOsm"); b.disabled = true; b.textContent = "Pegando sua localização…";
+  const fim = () => { b.disabled = false; b.textContent = "🗺 Baixar radares da minha região (OpenStreetMap)"; };
+  navigator.geolocation.getCurrentPosition(async p => {
+    b.textContent = "Baixando…";
+    try{ const n = await loadOsm(p.coords.latitude, p.coords.longitude); baseMsg(n + " radares do OpenStreetMap num raio de ~45 km.", "ok"); }
+    catch(e){ baseMsg("OpenStreetMap não respondeu (" + e.message + "). Tente de novo em alguns minutos.", "err"); }
+    fim();
+  }, () => { baseMsg("Libere a localização para baixar os radares da sua região.", "err"); fim(); }, {enableHighAccuracy:false, timeout:15000});
+};
+
+async function fetchAntt(){
+  // 1) função do Netlify (evita bloqueio CORS)  2) direto no portal dados.antt.gov.br
+  if (!NATIVE) try{
+    const r = await fetch("/.netlify/functions/radares", {cache:"no-store"});
+    if (r.ok){ const t = decode(await r.arrayBuffer()); if (/latitude/i.test(t)) return t; }
+  }catch(e){}
+  const pkg = JSON.parse(await httpText("https://dados.antt.gov.br/api/3/action/package_show?id=radar"));
+  const res = (pkg.result?.resources || []).filter(x => /csv/i.test(x.format || x.url));
+  res.sort((a, b) => String(b.last_modified || b.created).localeCompare(String(a.last_modified || a.created)));
+  if (!res.length) throw new Error("sem arquivo CSV");
+  return await httpText(res[0].url);
+}
+$("#btnAntt").onclick = async () => {
+  const b = $("#btnAntt"); b.disabled = true; b.textContent = "Baixando…";
+  try{
+    const list = dedupe(parseCSV(await fetchAntt()));
+    if (!list.length) throw new Error("arquivo sem radares válidos");
+    radAntt = list; LS.set("radAntt", radAntt); LS.set("anttData", Date.now());
+    baseMsg(list.length + " radares das rodovias carregados.", "ok");
+  }catch(e){
+    baseMsg("Não consegui baixar direto (" + e.message + "). Abra dados.antt.gov.br → dataset “radar”, baixe o CSV mais recente e use “Importar outra base”.", "err");
+  }
+  b.disabled = false; b.textContent = "⬇ Atualizar radares das rodovias (ANTT)";
+  renderBase();
+};
+$("#fileImp").onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try{
+    const txt = decode(await f.arrayBuffer());
+    let list = /\.gpx$/i.test(f.name) || txt.includes("<gpx") ? parseGPX(txt) : parseCSV(txt);
+    list = dedupe(list);
+    if (!list.length) throw new Error("nenhum radar válido encontrado");
+    // arquivo da ANTT vai para a base da ANTT; o resto para "importados"
+    if (/velocidade_leve|concessionaria/i.test(txt.slice(0, 400))){ radAntt = list; LS.set("radAntt", radAntt); LS.set("anttData", Date.now()); }
+    else { radImp = list; if (!LS.set("radImp", radImp)) throw new Error("arquivo grande demais para o armazenamento do navegador"); }
+    baseMsg(list.length + " radares importados.", "ok");
+  }catch(err){ baseMsg("Erro ao importar: " + err.message, "err"); }
+  e.target.value = ""; renderBase();
+};
+$("#btnExp").onclick = () => {
+  if (!radMeus.length){ baseMsg("Você ainda não marcou nenhum radar."); return; }
+  const csv = "latitude;longitude;limite;sentido\n" + radMeus.map(r => [r.lat, r.lon, r.lim ?? "", r.dir ?? ""].join(";")).join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], {type:"text/csv"}));
+  a.download = "meus-radares.csv"; a.click();
+};
+$("#btnLimpar").onclick = () => {
+  if (!radMeus.length || !confirm("Apagar os " + radMeus.length + " radares que você marcou?")) return;
+  radMeus = []; LS.set("radMeus", radMeus); renderBase(); baseMsg("Radares marcados apagados.");
+};
+
+/* ============ AJUSTES ============ */
+$("#cfgDist").value = cfg.dist; $("#vDist").textContent = cfg.dist;
+$("#cfgTol").value = cfg.tol;  $("#vTol").textContent = cfg.tol;
+$("#cfgOsm").checked = cfg.osm; $("#cfgOsm").onchange = e => { cfg.osm = e.target.checked; saveCfg(); };
+$("#cfgVoz").checked = cfg.voz; $("#cfgBip").checked = cfg.bip; $("#cfgPainel").checked = cfg.painel;
+$("#cfgDist").oninput = e => { cfg.dist = +e.target.value; $("#vDist").textContent = cfg.dist; saveCfg(); };
+$("#cfgTol").oninput  = e => { cfg.tol = +e.target.value;  $("#vTol").textContent = cfg.tol;  saveCfg(); };
+$("#cfgVoz").onchange = e => { cfg.voz = e.target.checked; saveCfg(); };
+$("#cfgBip").onchange = e => { cfg.bip = e.target.checked; saveCfg(); };
+$("#cfgPainel").onchange = e => { cfg.painel = e.target.checked; saveCfg(); };
+$("#btnTeste").onclick = () => {
+  try{ actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); }catch(e){}
+  beep(880, .12); setTimeout(() => beep(880, .12), 180);
+  speak("Radar em " + cfg.dist + " metros. Limite 60.");
+};
+
+/* ============ FIPE ============ */
+const FIPE = "https://parallelum.com.br/fipe/api/v1";
+async function getJSON(u){ return JSON.parse(await httpText(u)); }
+let modelos = [];
+function opts(sel, list, ph){
+  sel.innerHTML = `<option value="">${ph}</option>` + list.map(x => `<option value="${esc(x.codigo)}">${esc(x.nome)}</option>`).join("");
+}
+async function loadMarcas(){
+  const sel = $("#selMarca"); sel.innerHTML = "<option>Carregando…</option>";
+  ["#selModelo", "#selAno", "#fltModelo"].forEach(s => $(s).disabled = true);
+  $("#fipeOut").innerHTML = "";
+  try{ opts(sel, await getJSON(`${FIPE}/${$("#selTipo").value}/marcas`), "Escolha a marca"); }
+  catch(e){ sel.innerHTML = "<option>Erro — sem internet ou API fora do ar</option>"; }
+}
+$("#selTipo").onchange = loadMarcas;
+$("#selMarca").onchange = async () => {
+  const m = $("#selMarca").value; $("#fipeOut").innerHTML = "";
+  $("#selAno").disabled = true; opts($("#selAno"), [], "—");
+  if (!m) return;
+  $("#selModelo").innerHTML = "<option>Carregando…</option>";
+  try{
+    modelos = (await getJSON(`${FIPE}/${$("#selTipo").value}/marcas/${m}/modelos`)).modelos;
+    $("#fltModelo").value = ""; $("#fltModelo").disabled = false; $("#selModelo").disabled = false;
+    opts($("#selModelo"), modelos, `Escolha o modelo (${modelos.length})`);
+  }catch(e){ $("#selModelo").innerHTML = "<option>Erro ao carregar</option>"; }
+};
+$("#fltModelo").oninput = e => {
+  const q = e.target.value.toLowerCase().split(/\s+/).filter(Boolean);
+  const f = modelos.filter(x => q.every(w => x.nome.toLowerCase().includes(w)));
+  opts($("#selModelo"), f, `Escolha o modelo (${f.length})`);
+};
+$("#selModelo").onchange = async () => {
+  const mo = $("#selModelo").value; $("#fipeOut").innerHTML = "";
+  if (!mo) return;
+  $("#selAno").innerHTML = "<option>Carregando…</option>";
+  try{
+    opts($("#selAno"), await getJSON(`${FIPE}/${$("#selTipo").value}/marcas/${$("#selMarca").value}/modelos/${mo}/anos`), "Escolha o ano");
+    $("#selAno").disabled = false;
+  }catch(e){ $("#selAno").innerHTML = "<option>Erro ao carregar</option>"; }
+};
+$("#selAno").onchange = async () => {
+  const a = $("#selAno").value; if (!a) return;
+  $("#fipeOut").innerHTML = '<div class="msg">Consultando…</div>';
+  try{
+    const v = await getJSON(`${FIPE}/${$("#selTipo").value}/marcas/${$("#selMarca").value}/modelos/${$("#selModelo").value}/anos/${a}`);
+    $("#fipeOut").innerHTML = fipeCard({valor:v.Valor, marca:v.Marca, modelo:v.Modelo, ano:v.AnoModelo, comb:v.Combustivel, cod:v.CodigoFipe, ref:v.MesReferencia});
+  }catch(e){ $("#fipeOut").innerHTML = '<div class="msg err">Não consegui consultar agora. Tente de novo.</div>'; }
+};
+function fipeCard(v){
+  const ano = v.ano == 32000 ? "Zero km" : v.ano;
+  window.lastFipe = {modelo: (v.marca + " " + v.modelo + " " + ano).trim(), valor: v.valor, cod: v.cod};
+  return `<div class="mt"><div class="res">${esc(v.valor)}</div>
+    <div><b>${esc(v.marca)} ${esc(v.modelo)}</b></div>
+    <div class="small">${esc(ano)} · ${esc(v.comb)} · Código FIPE ${esc(v.cod)}<br>Referência: ${esc(v.ref)}</div>
+    ${pendingPlaca ? `<button class="pri mt" onclick="salvarHist(window.lastFipe)">Salvar na placa ${esc(pendingPlaca)}</button>` : ""}
+  </div>`;
+}
+
+// código FIPE (BrasilAPI) — mostra todos os anos do modelo
+$("#btnCod").onclick = async () => {
+  const cod = $("#inCod").value.replace(/[^0-9]/g, "");
+  if (cod.length < 7){ $("#codOut").innerHTML = '<div class="msg err">Código FIPE tem 7 dígitos (ex.: 005340-6).</div>'; return; }
+  const fmt = cod.slice(0, 6) + "-" + cod.slice(6, 7);
+  $("#codOut").innerHTML = '<div class="msg">Consultando…</div>';
+  try{
+    const list = await getJSON("https://brasilapi.com.br/api/fipe/preco/v1/" + fmt);
+    if (!list.length) throw new Error();
+    list.sort((a, b) => b.anoModelo - a.anoModelo);
+    const h = list[0];
+    $("#codOut").innerHTML = `<div class="mt"><b>${esc(h.marca)} ${esc(h.modelo)}</b><div class="small">Código ${esc(h.codigoFipe)} · Ref. ${esc(h.mesReferencia)}</div></div>` +
+      (pendingPlaca ? `<p class="small mt">Toque no ano certo para salvar na placa <b>${esc(pendingPlaca)}</b>.</p>` : "") +
+      list.map((v, i) => `<div class="item" data-i="${i}" style="${pendingPlaca ? "cursor:pointer" : ""}"><span>${v.anoModelo == 32000 ? "Zero km" : esc(v.anoModelo)} · ${esc(v.combustivel)}</span><span class="val">${esc(v.valor)}</span></div>`).join("");
+    lastCod = list;
+  }catch(e){ $("#codOut").innerHTML = '<div class="msg err">Código não encontrado ou API fora do ar.</div>'; }
+};
+let lastCod = null;
+$("#codOut").onclick = e => {
+  const it = e.target.closest("[data-i]"); if (!it || !pendingPlaca || !lastCod) return;
+  const v = lastCod[+it.dataset.i];
+  salvarHist({modelo: `${v.marca} ${v.modelo} ${v.anoModelo == 32000 ? "Zero km" : v.anoModelo}`, valor: v.valor, cod: v.codigoFipe});
+};
+$("#inCod").onkeydown = e => { if (e.key === "Enter") $("#btnCod").click(); };
+
+/* ============ PLACA ============ */
+let pendingPlaca = null;
+const L2N = "ABCDEFGHIJ";
+function normPlaca(s){ return s.toUpperCase().replace(/[^A-Z0-9]/g, ""); }
+function infoPlaca(p){
+  if (!/^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/.test(p)) return null;
+  const merc = /[A-Z]/.test(p[4]);
+  const antiga = merc ? p.slice(0, 4) + L2N.indexOf(p[4]) + p.slice(5) : p;
+  const mercosul = merc ? p : p.slice(0, 4) + L2N[+p[4]] + p.slice(5);
+  return {merc, antiga, mercosul};
+}
+$("#inPlaca").oninput = e => {
+  const p = normPlaca(e.target.value), out = $("#placaOut");
+  if (p.length < 7){ out.innerHTML = ""; pendingPlaca = null; return; }
+  const i = infoPlaca(p);
+  if (!i){ out.innerHTML = '<div class="msg err">Placa inválida. Use AAA9999 ou AAA9A99.</div>'; pendingPlaca = null; return; }
+  pendingPlaca = i.mercosul;
+  out.innerHTML = `
+    <div class="mt" style="text-align:center"><span class="placa">${i.mercosul.slice(0,3)} ${i.mercosul.slice(3)}</span></div>
+    <p class="small" style="text-align:center">${i.merc ? "Padrão Mercosul" : "Padrão antigo"} · equivalente: <b>${i.merc ? i.antiga.slice(0,3) + "-" + i.antiga.slice(3) : i.mercosul}</b></p>
+    <a href="https://placafipe.com/placa/${i.mercosul}" target="_blank" rel="noopener"><button class="pri">🔎 Ver modelo, ano e FIPE (site grátis)</button></a>
+    <button class="mt" id="btnSinesp">🚨 Ver roubo/furto no Sinesp Cidadão</button>
+    <button class="mt" id="btnVincular">💾 Salvar no histórico com valor FIPE</button>
+    <p class="small mt">O site grátis mostra o código FIPE: copie e cole na aba FIPE para ver todos os anos. O Sinesp Cidadão é o app oficial e gratuito do governo para saber se o carro tem alerta de roubo ou furto.</p>`;
+  $("#btnSinesp").onclick = async () => {
+    try{ await navigator.clipboard.writeText(i.mercosul); }catch(e){}
+    alert("Placa " + i.mercosul + " copiada. Abra o Sinesp Cidadão, entre em “Consulta de veículo” e cole a placa.");
+    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    window.open(isIOS ? "https://apps.apple.com/br/search?term=sinesp%20cidadao" : "https://play.google.com/store/search?q=sinesp%20cidad%C3%A3o&c=apps", "_blank");
+  };
+  $("#btnVincular").onclick = () => {
+    document.querySelector('nav button[data-tab="fipe"]').click();
+    $("#fipeOut").innerHTML = ""; $("#codOut").innerHTML = "";
+    alert("Escolha marca, modelo e ano — depois toque em “Salvar na placa " + i.mercosul + "”.");
+  };
+};
+window.salvarHist = v => {
+  if (!pendingPlaca) return;
+  const h = LS.get("hist", []).filter(x => x.placa !== pendingPlaca);
+  h.unshift({placa: pendingPlaca, modelo: v.modelo, valor: v.valor, cod: v.cod, data: Date.now()});
+  LS.set("hist", h.slice(0, 100));
+  renderHist();
+  document.querySelector('nav button[data-tab="placa"]').click();
+  alert("Salvo no histórico.");
+};
+function renderHist(){
+  const h = LS.get("hist", []);
+  $("#hist").innerHTML = h.length ? h.map((x, i) => `
+    <div class="item"><div><b>${esc(x.placa)}</b><span class="small">${esc(x.modelo)}<br>${new Date(x.data).toLocaleDateString("pt-BR")}</span></div>
+    <div style="text-align:right"><div class="val">${esc(x.valor)}</div><button class="x mt" data-del="${i}">Remover</button></div></div>`).join("")
+    : "Nenhuma placa salva ainda.";
+}
+$("#hist").onclick = e => {
+  const b = e.target.closest("[data-del]"); if (!b) return;
+  const h = LS.get("hist", []); h.splice(+b.dataset.del, 1); LS.set("hist", h); renderHist();
+};
+
+/* ============ APP ANDROID (segundo plano + início automático) ============ */
+function reloadData(){
+  radAntt = LS.get("radAntt", []); radImp = LS.get("radImp", []);
+  radMeus = LS.get("radMeus", []); radOsm = LS.get("radOsm", []); osmArea = LS.get("osmArea", null);
+}
+function renderPerm(){
+  if (!NATIVE) return;
+  let p = {};
+  try{ p = JSON.parse(Android.permStatus()); }catch(e){}
+  const ok = p.loc && p.bg && p.act && p.battery;
+  const li = (b, t) => `${b ? "✅" : "❌"} ${t}<br>`;
+  $("#permInfo").innerHTML = li(p.loc, "Localização") + li(p.bg, "Localização o tempo todo") +
+    li(p.act, "Atividade física (detectar carro)") + li(p.notif, "Notificações") + li(p.battery, "Sem economia de bateria");
+  $("#btnPerm").textContent = ok ? "Permissões OK — revisar" : "Configurar permissões";
+  $("#permWarn").style.display = ok || !cfg.auto ? "none" : "block";
+  return ok;
+}
+let nativeRunning = false;
+function pollNative(){
+  if (document.hidden) return;
+  let s = {};
+  try{ s = JSON.parse(Android.status()); }catch(e){ return; }
+  nativeRunning = !!s.running;
+  const btn = $("#btnStart"), pill = $("#statusPill");
+  btn.className = s.running ? "stop" : "go";
+  btn.textContent = s.running ? "■ Parar radar" : "▶ Ligar radar agora";
+  $("#btnMark").disabled = !s.running;
+  if (s.running){
+    pill.className = "pill on"; pill.textContent = s.auto ? "automático" : "ligado";
+  } else {
+    pill.className = "pill"; pill.textContent = cfg.auto ? "aguardando carro" : "desligado";
+  }
+  const box = $("#speedBox"), badge = $("#limBadge");
+  if (!s.running){
+    $("#speed").textContent = "--"; box.classList.remove("over");
+    badge.className = "none"; badge.textContent = "--"; $("#radarBar").style.width = "0";
+    $("#radarTxt").textContent = cfg.auto ? "O radar liga sozinho quando você começar a dirigir." : "Toque em “Ligar radar agora”.";
+    $("#gpsAcc").textContent = "GPS: --";
+    return;
+  }
+  $("#speed").textContent = s.gps ? s.kmh : "--";
+  $("#gpsAcc").textContent = s.acc >= 0 ? "GPS: ±" + s.acc + " m" : "GPS: procurando…";
+  $("#radCount").textContent = s.count + " radares";
+  box.classList.toggle("over", !!s.over);
+  if (s.dist >= 0 && s.dist <= s.aviso){
+    badge.className = s.lim ? "" : "none"; badge.textContent = s.lim || "?";
+    $("#radarTxt").innerHTML = `<div class="big">${s.dist} m</div>${s.lim ? "Limite " + s.lim + " km/h" : "Limite não informado"} · ${esc(s.desc || "radar")}`;
+    $("#radarBar").style.width = Math.max(0, Math.min(100, 100 - s.dist / s.aviso * 100)) + "%";
+  } else {
+    badge.className = "none"; badge.textContent = "--"; $("#radarBar").style.width = "0";
+    $("#radarTxt").textContent = !s.gps ? "Procurando sinal do GPS…" : s.dist >= 0 ? `Radar a ${s.dist} m (fora do raio de aviso)` : "Nenhum radar à frente no raio de " + s.aviso + " m.";
+  }
+}
+if (NATIVE){
+  $("#autoCard").style.display = "block";
+  $("#radarHint").textContent = "Pode apagar a tela ou abrir o Waze/Spotify: os avisos continuam por voz. Na notificação dá pra marcar radar ou parar.";
+  $("#cfgAuto").checked = cfg.auto;
+  $("#cfgAuto").onchange = e => { cfg.auto = e.target.checked; saveCfg(); renderPerm(); pollNative(); };
+  $("#btnPerm").onclick = () => Android.setupPermissions();
+  $("#permWarn").onclick = () => Android.setupPermissions();
+  $("#btnStart").onclick = () => { nativeRunning ? Android.stopTrip() : Android.startTrip(); setTimeout(pollNative, 600); };
+  $("#btnMark").onclick = () => $("#modal").classList.add("on");
+  $("#limGrid").onclick = e => {
+    const b = e.target.closest("button"); if (!b) return;
+    Android.markRadar(+b.dataset.l);
+    $("#modal").classList.remove("on");
+    setTimeout(() => { reloadData(); renderBase(); }, 500);
+  };
+  window.onNativeResume = () => { reloadData(); renderBase(); renderPerm(); pollNative(); };
+  setInterval(pollNative, 1000);
+}
+
+/* ============ início ============ */
+renderBase(); renderHist(); loadMarcas();
+if (NATIVE){ renderPerm(); pollNative(); if (!renderPerm() && cfg.auto) setTimeout(() => Android.setupPermissions(), 800); }
+if (!NATIVE && "serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+if (!radAntt.length && navigator.onLine) setTimeout(() => $("#btnAntt").click(), 1500);
+</script>
+</body>
+</html>

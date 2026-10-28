@@ -1,0 +1,44 @@
+name: Gerar APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - name: Compilar APK
+        run: gradle :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Renomear
+        run: cp app/build/outputs/apk/release/app-release.apk copiloto.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: copiloto-apk
+          path: copiloto.apk
+
+      - name: Publicar link de download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete apk -y --cleanup-tag || true
+          gh release create apk copiloto.apk \
+            --title "Copiloto v1.0.${{ github.run_number }}" \
+            --notes "APK gerado automaticamente. Baixe o copiloto.apk no celular e instale."
