@@ -73,6 +73,15 @@ input[type=range]{padding:0;height:36px;background:none;border:0;accent-color:va
 #modal .card{width:100%;margin:0;border-radius:20px 20px 0 0;padding-bottom:calc(16px + env(safe-area-inset-bottom))}
 .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 .grid button{font-size:20px;padding:16px 0}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.chips button{width:auto;padding:9px 12px;font-size:14px}
+.chips button.sel{background:var(--acc);color:#fff}
+#trechoCard{border-color:var(--warn)}
+#trechoCard.over{border-color:var(--bad);background:#3a0b0b}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center}
+.stats b{display:block;font-size:22px}
+.frase label{margin-top:12px}
+.frase .row button{flex:0 0 52px;padding:12px 0}
 </style>
 </head>
 <body>
@@ -90,17 +99,36 @@ input[type=range]{padding:0;height:36px;background:none;border:0;accent-color:va
     <div id="limBadge" class="none">--</div>
   </div>
 
+  <div class="card mt" id="trechoCard" style="display:none">
+    <h2>Radar de trecho</h2>
+    <div id="trechoTxt"></div>
+  </div>
+
   <div class="card mt" id="radarCard">
     <h2>Próximo radar</h2>
     <div id="radarTxt" class="small">Toque em “Iniciar viagem”.</div>
     <div class="bar"><div id="radarBar"></div></div>
     <div id="gpsInfo"><span id="gpsAcc">GPS: --</span><span id="radCount">0 radares</span></div>
+    <button id="btnIgnore" class="mt" style="display:none">🚫 Esse radar não existe</button>
   </div>
 
   <div id="permWarn" class="msg err" style="display:none;margin-bottom:12px">Para o radar ligar sozinho, falta liberar permissões. <b>Toque aqui.</b></div>
   <button id="btnStart" class="go">▶ Iniciar viagem</button>
   <button id="btnMark" class="mt" disabled>📍 Marcar radar aqui</button>
   <p class="small mt" id="radarHint">Mantenha a tela ligada (o app tenta travar a tela acesa sozinho). Use o celular num suporte e não mexa nele dirigindo.</p>
+</section>
+
+<!-- ================= VIAGENS ================= -->
+<section id="tab-viagens">
+  <div class="card">
+    <h2>Resumo</h2>
+    <div class="stats" id="tripStats"></div>
+  </div>
+  <div class="card">
+    <h2>Viagens</h2>
+    <div id="tripList" class="small">Nenhuma viagem registrada ainda.</div>
+  </div>
+  <button id="btnTripClear">Apagar histórico</button>
 </section>
 
 <!-- ================= PLACA ================= -->
@@ -165,7 +193,14 @@ input[type=range]{padding:0;height:36px;background:none;border:0;accent-color:va
     <div class="sw"><span>Aviso por voz</span><input type="checkbox" id="cfgVoz"></div>
     <div class="sw"><span>Bip</span><input type="checkbox" id="cfgBip"></div>
     <div class="sw"><span>Velocímetro mostra +3% (igual ao painel)</span><input type="checkbox" id="cfgPainel"></div>
+    <div class="sw" id="bolhaRow" style="display:none"><span>Bolha de velocidade por cima do Waze/Maps</span><input type="checkbox" id="cfgBolha"></div>
     <button id="btnTeste" class="mt">🔊 Testar som</button>
+  </div>
+
+  <div class="card frase">
+    <h2>Frases faladas</h2>
+    <p class="small">Use {distancia}, {limite} e {media}. Deixe em branco para voltar ao padrão.</p>
+    <div id="frasesBox"></div>
   </div>
 
   <div class="card">
@@ -180,6 +215,7 @@ input[type=range]{padding:0;height:36px;background:none;border:0;accent-color:va
       <button id="btnExp">Exportar meus radares</button>
       <button id="btnLimpar">Apagar meus radares</button>
     </div>
+    <button id="btnRestore" class="mt">Restaurar radares marcados como “não existe”</button>
     <div id="baseMsg"></div>
     <p class="small mt">CSV aceito: com cabeçalho (latitude, longitude, limite/velocidade) ou no padrão X,Y,TIPO,VELOCIDADE usado por bases de GPS. Importar de novo substitui a importação anterior.</p>
   </div>
@@ -188,6 +224,7 @@ input[type=range]{padding:0;height:36px;background:none;border:0;accent-color:va
 
 <nav>
   <button data-tab="radar" class="act"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="13" r="8"/><path d="M12 13l4-4"/></svg>Radar</button>
+  <button data-tab="viagens"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>Viagens</button>
   <button data-tab="placa"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="10" rx="2"/><path d="M6 12h3M12 12h6"/></svg>Placa</button>
   <button data-tab="fipe"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 6H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>FIPE</button>
   <button data-tab="config"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>Ajustes</button>
@@ -195,7 +232,15 @@ input[type=range]{padding:0;height:36px;background:none;border:0;accent-color:va
 
 <div id="modal">
   <div class="card">
-    <h2>Limite deste radar</h2>
+    <h2>O que tem aqui?</h2>
+    <div class="chips" id="tipoChips">
+      <button data-t="fixo" class="sel">Radar</button>
+      <button data-t="lombada">Lombada</button>
+      <button data-t="semaforo">Semáforo</button>
+      <button data-t="trecho_ini">Início de trecho</button>
+      <button data-t="trecho_fim">Fim de trecho</button>
+    </div>
+    <h2>Limite</h2>
     <div class="grid" id="limGrid"></div>
     <button id="btnCancel" class="mt">Cancelar</button>
   </div>
@@ -271,6 +316,7 @@ function vibrate(p){ if (navigator.vibrate) navigator.vibrate(p); }
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
   document.querySelectorAll("nav button").forEach(x => x.classList.toggle("act", x === b));
   document.querySelectorAll("main section").forEach(s => s.classList.toggle("act", s.id === "tab-" + b.dataset.tab));
+  if (b.dataset.tab === "viagens" && typeof renderTrips === "function") renderTrips();
   window.scrollTo(0, 0);
 });
 
@@ -377,14 +423,14 @@ function checkRadars(lat, lon, kmh){
     beep(880, .12); setTimeout(() => beep(880, .12), 180);
     vibrate([150, 80, 150]);
     const m = Math.max(50, Math.round(best.d / 50) * 50);
-    speak(`Radar em ${m} metros.` + (lim ? ` Limite ${lim}.` : ""));
+    speak(frase(r.tipo === "lombada" ? "lombada" : r.tipo === "semaforo" ? "semaforo" : "radar", {distancia:m, limite:lim}));
   }
 
   const over = lim && kmh > lim + cfg.tol;
   box.classList.toggle("over", !!over);
   if (over){
     if (now - lastBeep > 1400){ beep(1500, .25, .5); vibrate(300); lastBeep = now; }
-    if (!overSpoken.has(id)){ overSpoken.set(id, now); setTimeout(() => speak("Se ferrou! Passou acima da velocidade."), 900); }
+    if (!overSpoken.has(id)){ overSpoken.set(id, now); setTimeout(() => speak(frase("excesso", {limite:lim})), 900); }
   }
 }
 
@@ -396,7 +442,7 @@ $("#btnCancel").onclick = () => $("#modal").classList.remove("on");
 $("#limGrid").onclick = e => {
   const b = e.target.closest("button"); if (!b || !lastPos) return;
   const l = +b.dataset.l;
-  radMeus.push({lat:lastPos.lat, lon:lastPos.lon, lim:l || null, desc:"marcado por você", dir: lastPos.heading != null ? Math.round(lastPos.heading) : null});
+  radMeus.push({lat:lastPos.lat, lon:lastPos.lon, lim:l || null, desc:"marcado por você", tipo: tipoSel.startsWith("trecho") ? "fixo" : tipoSel, dir: lastPos.heading != null ? Math.round(lastPos.heading) : null});
   LS.set("radMeus", radMeus);
   $("#modal").classList.remove("on");
   beep(660, .1); speak("Radar salvo.");
@@ -411,7 +457,9 @@ function renderBase(){
   $("#baseInfo").innerHTML =
     `Rodovias (ANTT): <b>${radAntt.length}</b>${dt ? " · atualizado " + new Date(dt).toLocaleDateString("pt-BR") : ""}<br>` +
     `OpenStreetMap (região): <b>${radOsm.length}</b>${osmArea ? " · atualizado " + new Date(osmArea.t).toLocaleDateString("pt-BR") : ""}<br>` +
-    `Importados: <b>${radImp.length}</b><br>Marcados por você: <b>${radMeus.length}</b>`;
+    `Importados: <b>${radImp.length}</b><br>Marcados por você: <b>${radMeus.length}</b><br>` +
+    `Radares de trecho: <b>${LS.get("osmTrechos", []).length + LS.get("meusTrechos", []).length}</b><br>` +
+    `Removidos (“não existe”): <b>${LS.get("radIgnorados", []).length}</b>`;
 }
 function baseMsg(t, cls){ $("#baseMsg").innerHTML = `<div class="msg ${cls || ""}">${esc(t)}</div>`; }
 
@@ -429,6 +477,13 @@ function splitLine(line, sep){
   }
   out.push(cur); return out.map(s => s.trim());
 }
+function tipoOf(s){
+  s = String(s || "").toLowerCase();
+  if (/lombad|redutor/.test(s)) return "lombada";
+  if (/sem[aá]foro|avan[cç]o|vermelh|parada obrig/.test(s)) return "semaforo";
+  return "fixo";
+}
+const TIPO_NOME = {fixo:"Radar", lombada:"Lombada eletrônica", semaforo:"Semáforo c/ câmera"};
 const inBR = (lat, lon) => lat > -35 && lat < 6.5 && lon > -75 && lon < -28;
 
 function parseCSV(txt){
@@ -452,7 +507,7 @@ function parseCSV(txt){
       const lat = num(c[iLat]), lon = num(c[iLon]); if (!inBR(lat, lon)) continue;
       const lim = iLim >= 0 ? Math.round(num(c[iLim])) : NaN;
       const desc = [iTipo >= 0 ? c[iTipo] : "", iRod >= 0 ? c[iRod] : "", iKm >= 0 && c[iKm] ? "km " + c[iKm] : "", iSent >= 0 ? c[iSent] : ""].filter(Boolean).join(" · ");
-      res.push({lat:+lat.toFixed(6), lon:+lon.toFixed(6), lim: lim > 0 && lim < 200 ? lim : null, desc: desc.slice(0, 80)});
+      res.push({lat:+lat.toFixed(6), lon:+lon.toFixed(6), lim: lim > 0 && lim < 200 ? lim : null, desc: desc.slice(0, 80), tipo: tipoOf(desc)});
     }
   } else {
     // padrão GPS sem cabeçalho: X(lon),Y(lat),TIPO,VELOCIDADE,...
@@ -473,7 +528,7 @@ function parseGPX(txt){
     const lat = num(w.getAttribute("lat")), lon = num(w.getAttribute("lon"));
     const name = (w.querySelector("name")?.textContent || "") + " " + (w.querySelector("desc")?.textContent || "");
     const m = name.match(/\b(\d{2,3})\b/);
-    return {lat, lon, lim: m ? +m[1] : null, desc: name.trim().slice(0, 80) || "importado"};
+    return {lat, lon, lim: m ? +m[1] : null, desc: name.trim().slice(0, 80) || "importado", tipo: tipoOf(name)};
   }).filter(r => inBR(r.lat, r.lon));
 }
 // remove duplicados (mesmo ponto em até ~15 m)
@@ -523,7 +578,13 @@ function autoOsm(lat, lon){
   osmBusy = true;
   loadOsm(lat, lon).catch(() => {}).finally(() => setTimeout(() => osmBusy = false, 60000));
 }
+window.__osmCb = (id, ok, msg) => {
+  const b = $("#btnOsm"); b.disabled = false; b.textContent = "🗺 Baixar radares da minha região (OpenStreetMap)";
+  reloadData(); renderBase();
+  baseMsg(ok ? msg + " radares/trechos do OpenStreetMap num raio de ~45 km." : "OpenStreetMap: " + msg + ". Tente de novo em alguns minutos.", ok ? "ok" : "err");
+};
 $("#btnOsm").onclick = () => {
+  if (NATIVE){ const b = $("#btnOsm"); b.disabled = true; b.textContent = "Baixando…"; Android.updateOsm(1); return; }
   const b = $("#btnOsm"); b.disabled = true; b.textContent = "Pegando sua localização…";
   const fim = () => { b.disabled = false; b.textContent = "🗺 Baixar radares da minha região (OpenStreetMap)"; };
   navigator.geolocation.getCurrentPosition(async p => {
@@ -741,6 +802,67 @@ $("#hist").onclick = e => {
   const h = LS.get("hist", []); h.splice(+b.dataset.del, 1); LS.set("hist", h); renderHist();
 };
 
+/* ============ FRASES ============ */
+const FRASES = [
+  ["radar", "Aviso de radar", "Radar em {distancia} metros. Limite {limite}."],
+  ["lombada", "Lombada eletrônica", "Lombada eletrônica em {distancia} metros. Limite {limite}."],
+  ["semaforo", "Semáforo com câmera", "Semáforo com câmera em {distancia} metros."],
+  ["excesso", "Passou do limite", "Se ferrou! Passou acima da velocidade."],
+  ["trechoInicio", "Início do radar de trecho", "Início de radar de trecho. Limite {limite}."],
+  ["trechoExcesso", "Média alta no trecho", "Média acima do limite no trecho. Reduza."],
+  ["trechoFim", "Fim do trecho", "Fim do trecho. Média de {media} quilômetros por hora."]
+];
+function frase(k, v = {}){
+  const def = (FRASES.find(f => f[0] === k) || [])[2] || "";
+  let t = (cfg.frases && cfg.frases[k] && cfg.frases[k].trim()) || def;
+  if (v.limite == null) t = t.replace(/[^.!?]*\{limite\}[^.!?]*[.!?]?/g, "");
+  return t.replace(/\{distancia\}/g, v.distancia ?? 0).replace(/\{limite\}/g, v.limite ?? 0).replace(/\{media\}/g, v.media ?? 0).trim();
+}
+$("#frasesBox").innerHTML = FRASES.map(([k, n, d]) => `
+  <label>${n}</label>
+  <div class="row"><input data-f="${k}" placeholder="${esc(d)}"><button data-ft="${k}">🔊</button></div>`).join("");
+document.querySelectorAll("[data-f]").forEach(i => {
+  i.value = (cfg.frases && cfg.frases[i.dataset.f]) || "";
+  i.onchange = () => { cfg.frases = Object.assign({}, cfg.frases, {[i.dataset.f]: i.value.trim()}); saveCfg(); };
+});
+$("#frasesBox").onclick = e => {
+  const b = e.target.closest("[data-ft]"); if (!b) return;
+  const t = frase(b.dataset.ft, {distancia: cfg.dist, limite: 60, media: 72});
+  if (NATIVE) Android.speak(t); else { try{ actx = actx || new (window.AudioContext || window.webkitAudioContext)(); }catch(e){} speak(t); }
+};
+
+/* ============ TIPO AO MARCAR ============ */
+let tipoSel = "fixo";
+$("#tipoChips").onclick = e => {
+  const b = e.target.closest("[data-t]"); if (!b) return;
+  tipoSel = b.dataset.t;
+  document.querySelectorAll("#tipoChips button").forEach(x => x.classList.toggle("sel", x === b));
+};
+
+/* ============ VIAGENS ============ */
+function renderTrips(){
+  const v = LS.get("viagens", []);
+  const km = v.reduce((s, x) => s + (x.km || 0), 0), exc = v.reduce((s, x) => s + (x.excessos || 0), 0);
+  const max = v.reduce((s, x) => Math.max(s, x.max || 0), 0);
+  $("#tripStats").innerHTML = `<div><b>${v.length}</b><span class="small">viagens</span></div>
+    <div><b>${km.toLocaleString("pt-BR", {maximumFractionDigits:1})}</b><span class="small">km</span></div>
+    <div><b style="color:${exc ? "var(--bad)" : "var(--ok)"}">${exc}</b><span class="small">excessos</span></div>`;
+  $("#tripList").innerHTML = v.length ? v.map(x => {
+    const d = new Date(x.ini);
+    return `<div class="item"><div><b>${d.toLocaleDateString("pt-BR")} · ${d.toLocaleTimeString("pt-BR", {hour:"2-digit", minute:"2-digit"})}</b>
+      <span class="small">${(x.km || 0).toLocaleString("pt-BR")} km · ${x.min} min · média ${x.media} · máx ${x.max} km/h</span></div>
+      <div class="val" style="color:${x.excessos ? "var(--bad)" : "var(--ok)"}">${x.excessos ? x.excessos + " ⚠" : "✓"}</div></div>`;
+  }).join("") : "Nenhuma viagem registrada ainda." + (max ? "" : "");
+}
+$("#btnTripClear").onclick = () => { if (confirm("Apagar todo o histórico de viagens?")){ LS.set("viagens", []); renderTrips(); } };
+
+/* ============ RESTAURAR “NÃO EXISTE” ============ */
+$("#btnRestore").onclick = () => {
+  const n = LS.get("radIgnorados", []).length;
+  if (!n){ baseMsg("Nenhum radar removido."); return; }
+  if (confirm("Voltar a avisar os " + n + " radares que você marcou como “não existe”?")){ LS.set("radIgnorados", []); renderBase(); baseMsg("Radares restaurados.", "ok"); }
+};
+
 /* ============ APP ANDROID (segundo plano + início automático) ============ */
 function reloadData(){
   radAntt = LS.get("radAntt", []); radImp = LS.get("radImp", []);
@@ -774,6 +896,14 @@ function pollNative(){
     pill.className = "pill"; pill.textContent = cfg.auto ? "aguardando carro" : "desligado";
   }
   const box = $("#speedBox"), badge = $("#limBadge");
+  const tc = $("#trechoCard");
+  if (s.running && s.trecho){
+    const t = s.trecho, over = t.lim && t.media > t.lim + cfg.tol;
+    tc.style.display = "block"; tc.classList.toggle("over", !!over);
+    $("#trechoTxt").innerHTML = `<div class="big" style="font-size:30px;font-weight:800">${t.media} km/h <span class="small">média</span></div>` +
+      `${t.lim ? "Limite " + t.lim + " km/h · " : ""}faltam ${(t.falta / 1000).toLocaleString("pt-BR", {maximumFractionDigits:1})} km`;
+  } else tc.style.display = "none";
+  $("#btnIgnore").style.display = s.running && s.dist >= 0 && s.dist <= s.aviso ? "block" : "none";
   if (!s.running){
     $("#speed").textContent = "--"; box.classList.remove("over");
     badge.className = "none"; badge.textContent = "--"; $("#radarBar").style.width = "0";
@@ -787,7 +917,7 @@ function pollNative(){
   box.classList.toggle("over", !!s.over);
   if (s.dist >= 0 && s.dist <= s.aviso){
     badge.className = s.lim ? "" : "none"; badge.textContent = s.lim || "?";
-    $("#radarTxt").innerHTML = `<div class="big">${s.dist} m</div>${s.lim ? "Limite " + s.lim + " km/h" : "Limite não informado"} · ${esc(s.desc || "radar")}`;
+    $("#radarTxt").innerHTML = `<div class="big">${s.dist} m</div><b>${TIPO_NOME[s.tipo] || "Radar"}</b> · ${s.lim ? "limite " + s.lim + " km/h" : "limite não informado"}<br><span class="small">${esc(s.desc || "")}</span>`;
     $("#radarBar").style.width = Math.max(0, Math.min(100, 100 - s.dist / s.aviso * 100)) + "%";
   } else {
     badge.className = "none"; badge.textContent = "--"; $("#radarBar").style.width = "0";
@@ -800,21 +930,28 @@ if (NATIVE){
   $("#cfgAuto").checked = cfg.auto;
   $("#cfgAuto").onchange = e => { cfg.auto = e.target.checked; saveCfg(); renderPerm(); pollNative(); };
   $("#btnPerm").onclick = () => Android.setupPermissions();
+  $("#bolhaRow").style.display = "flex";
+  $("#cfgBolha").checked = !!cfg.bolha;
+  $("#cfgBolha").onchange = e => {
+    cfg.bolha = e.target.checked; saveCfg();
+    if (cfg.bolha){ let p = {}; try{ p = JSON.parse(Android.permStatus()); }catch(x){} if (!p.overlay){ alert("Na próxima tela, ative “Permitir sobreposição a outros apps” para o Copiloto."); Android.requestOverlay(); } }
+  };
+  $("#btnIgnore").onclick = () => { Android.ignoreRadar(); setTimeout(() => { reloadData(); renderBase(); pollNative(); }, 600); };
   $("#permWarn").onclick = () => Android.setupPermissions();
   $("#btnStart").onclick = () => { nativeRunning ? Android.stopTrip() : Android.startTrip(); setTimeout(pollNative, 600); };
   $("#btnMark").onclick = () => $("#modal").classList.add("on");
   $("#limGrid").onclick = e => {
     const b = e.target.closest("button"); if (!b) return;
-    Android.markRadar(+b.dataset.l);
+    Android.markRadar(+b.dataset.l, tipoSel);
     $("#modal").classList.remove("on");
     setTimeout(() => { reloadData(); renderBase(); }, 500);
   };
-  window.onNativeResume = () => { reloadData(); renderBase(); renderPerm(); pollNative(); };
+  window.onNativeResume = () => { reloadData(); renderBase(); renderPerm(); renderTrips(); pollNative(); };
   setInterval(pollNative, 1000);
 }
 
 /* ============ início ============ */
-renderBase(); renderHist(); loadMarcas();
+renderBase(); renderHist(); renderTrips(); loadMarcas();
 if (NATIVE){ renderPerm(); pollNative(); if (!renderPerm() && cfg.auto) setTimeout(() => Android.setupPermissions(), 800); }
 if (!NATIVE && "serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 if (!radAntt.length && navigator.onLine) setTimeout(() => $("#btnAntt").click(), 1500);

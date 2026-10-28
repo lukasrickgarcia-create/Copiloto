@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.speech.tts.TextToSpeech
 import android.util.Base64
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
@@ -20,12 +21,20 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.webkit.WebViewAssetLoader
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import org.json.JSONObject
+import java.util.Locale
 
 class MainActivity : Activity() {
 
+    companion object {
+        @Volatile var visible = false
+    }
+
     lateinit var web: WebView
     private var pendingBattery = false
+    private var testTts: TextToSpeech? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -70,8 +79,59 @@ class MainActivity : Activity() {
         }
     }
 
+    override fun onPause() {
+        super.onPause()
+        visible = false
+    }
+
+    override fun onDestroy() {
+        testTts?.shutdown()
+        super.onDestroy()
+    }
+
+    /** Testar frases nos Ajustes. */
+    fun testSpeak(t: String) {
+        val cur = testTts
+        if (cur != null) { cur.speak(t, TextToSpeech.QUEUE_FLUSH, null, "teste"); return }
+        var tts: TextToSpeech? = null
+        tts = TextToSpeech(this) { st ->
+            if (st == TextToSpeech.SUCCESS) {
+                tts?.language = Locale("pt", "BR")
+                testTts = tts
+                tts?.speak(t, TextToSpeech.QUEUE_FLUSH, null, "teste")
+            }
+        }
+    }
+
+    fun requestOverlay() {
+        if (Settings.canDrawOverlays(this)) return
+        try {
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+        } catch (e: Exception) { }
+    }
+
+    @SuppressLint("MissingPermission")
+    fun updateOsm(id: Int) {
+        val cb = { ok: Boolean, msg: String ->
+            runOnUiThread { web.evaluateJavascript("window.__osmCb && __osmCb($id,$ok,${JSONObject.quote(msg)})", null) }
+        }
+        if (!hasLoc()) { cb(false, "libere a localização"); return }
+        LocationServices.getFusedLocationProviderClient(this)
+            .getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null)
+            .addOnSuccessListener { l ->
+                if (l == null) cb(false, "sem sinal de localização")
+                else Thread {
+                    try { cb(true, Osm.fetch(this, l.latitude, l.longitude).toString()) }
+                    catch (e: Exception) { cb(false, e.message ?: "erro") }
+                    RadarService.inst?.let { s -> s.post { s.reload() } }
+                }.start()
+            }
+            .addOnFailureListener { cb(false, "sem localização") }
+    }
+
     override fun onResume() {
         super.onResume()
+        visible = true
         if (pendingBattery) { pendingBattery = false; finishSetup() }
         refreshJs()
     }
@@ -103,6 +163,7 @@ class MainActivity : Activity() {
         .put("act", Build.VERSION.SDK_INT < 29 || granted(Manifest.permission.ACTIVITY_RECOGNITION))
         .put("notif", Build.VERSION.SDK_INT < 33 || granted(Manifest.permission.POST_NOTIFICATIONS))
         .put("battery", batteryOk())
+        .put("overlay", Settings.canDrawOverlays(this))
         .toString()
 
     /** Passo 1: localização, atividade física e notificações. */
@@ -202,8 +263,28 @@ class Bridge(private val a: MainActivity) {
     }
 
     @JavascriptInterface
-    fun markRadar(lim: Int) {
-        RadarService.inst?.let { s -> s.post { s.mark(if (lim > 0) lim else null) } }
+    fun markRadar(lim: Int, tipo: String) {
+        RadarService.inst?.let { s -> s.post { s.mark(if (lim > 0) lim else null, tipo.ifEmpty { "fixo" }) } }
+    }
+
+    @JavascriptInterface
+    fun ignoreRadar() {
+        RadarService.inst?.let { s -> s.post { s.ignoreLast() } }
+    }
+
+    @JavascriptInterface
+    fun updateOsm(id: Int) {
+        a.runOnUiThread { a.updateOsm(id) }
+    }
+
+    @JavascriptInterface
+    fun speak(t: String) {
+        a.runOnUiThread { a.testSpeak(t) }
+    }
+
+    @JavascriptInterface
+    fun requestOverlay() {
+        a.runOnUiThread { a.requestOverlay() }
     }
 
     @JavascriptInterface

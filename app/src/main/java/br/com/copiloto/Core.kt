@@ -58,12 +58,47 @@ object Store {
 }
 
 /* ================= Radares ================= */
-data class Radar(val lat: Double, val lon: Double, val lim: Int?, val desc: String, val dir: Double?)
+data class Radar(val lat: Double, val lon: Double, val lim: Int?, val desc: String, val dir: Double?, val tipo: String)
+
+/** Radar de trecho (velocidade média entre A e B). */
+data class Trecho(val aLat: Double, val aLon: Double, val bLat: Double, val bLon: Double, val lim: Int?, val desc: String)
 
 object Radars {
     private val KEYS = listOf("radAntt", "radOsm", "radImp", "radMeus")
 
+    fun tipoOf(s: String): String {
+        val t = s.lowercase(Locale.ROOT)
+        return when {
+            Regex("lombad|redutor").containsMatchIn(t) -> "lombada"
+            Regex("sem[aá]foro|avan[cç]o|vermelh|parada obrig").containsMatchIn(t) -> "semaforo"
+            else -> "fixo"
+        }
+    }
+
+    /** Radares que o usuário marcou como "não existe". */
+    fun ignored(c: Context): List<Pair<Double, Double>> = try {
+        val a = JSONArray(Store.get(c, "radIgnorados") ?: "[]")
+        (0 until a.length()).map { a.getJSONObject(it).let { o -> o.getDouble("lat") to o.getDouble("lon") } }
+    } catch (e: Exception) { emptyList() }
+
+    fun loadTrechos(c: Context): List<Trecho> {
+        val out = ArrayList<Trecho>()
+        for (k in listOf("osmTrechos", "meusTrechos")) {
+            val s = Store.get(c, k) ?: continue
+            try {
+                val a = JSONArray(s)
+                for (i in 0 until a.length()) {
+                    val o = a.getJSONObject(i)
+                    val lim = if (o.isNull("lim")) null else o.optInt("lim", 0).takeIf { it in 1..199 }
+                    out.add(Trecho(o.getDouble("aLat"), o.getDouble("aLon"), o.getDouble("bLat"), o.getDouble("bLon"), lim, o.optString("desc", "trecho")))
+                }
+            } catch (e: Exception) { }
+        }
+        return out
+    }
+
     fun load(c: Context): List<Radar> {
+        val ign = ignored(c)
         val out = ArrayList<Radar>()
         for (k in KEYS) {
             val s = Store.get(c, k) ?: continue
@@ -76,7 +111,10 @@ object Radars {
                     if (lat.isNaN() || lon.isNaN()) continue
                     val lim = if (o.isNull("lim")) null else o.optInt("lim", 0).takeIf { it in 1..199 }
                     val dir = if (o.isNull("dir")) null else o.optDouble("dir", Double.NaN).takeIf { !it.isNaN() }
-                    out.add(Radar(lat, lon, lim, o.optString("desc", "radar"), dir))
+                    if (ign.any { dist(it.first, it.second, lat, lon) < 30 }) continue
+                    val desc = o.optString("desc", "radar")
+                    val tipo = o.optString("tipo", "").ifEmpty { tipoOf(desc) }
+                    out.add(Radar(lat, lon, lim, desc, dir, tipo))
                 }
             } catch (e: Exception) { }
         }
@@ -158,7 +196,10 @@ object Osm {
     fun fetch(c: Context, lat: Double, lon: Double): Int {
         val r = 0.4
         val bb = listOf(lat - r, lon - r, lat + r, lon + r).joinToString(",") { String.format(Locale.US, "%.4f", it) }
-        val q = "[out:json][timeout:25];(node[\"highway\"=\"speed_camera\"]($bb);node[\"enforcement\"=\"maxspeed\"]($bb););out body;"
+        val q = "[out:json][timeout:25];" +
+            "(node[\"highway\"=\"speed_camera\"]($bb);node[\"enforcement\"=\"maxspeed\"]($bb);)->.c;" +
+            "(relation[\"enforcement\"=\"average_speed\"]($bb);relation[\"enforcement\"=\"traffic_signals\"]($bb);relation[\"enforcement\"=\"maxspeed\"]($bb);)->.r;" +
+            ".c out body;.r out body;node(r.r);out skel;"
         var txt: String? = null
         for (u in URLS) {
             try {
@@ -169,10 +210,46 @@ object Osm {
         if (txt == null) throw IOException("OpenStreetMap sem resposta")
         val els = JSONObject(txt).getJSONArray("elements")
         val out = JSONArray()
+        val trechos = JSONArray()
         val seen = HashSet<String>()
+        // coordenadas de todos os nós (para resolver membros das relações)
+        val nodes = HashMap<Long, Pair<Double, Double>>()
         for (i in 0 until els.length()) {
             val e = els.getJSONObject(i)
-            if (!e.has("lat")) continue
+            if (e.optString("type") == "node" && e.has("lat")) nodes[e.getLong("id")] = e.getDouble("lat") to e.getDouble("lon")
+        }
+        fun member(rel: JSONObject, vararg roles: String): Pair<Double, Double>? {
+            val ms = rel.optJSONArray("members") ?: return null
+            for (role in roles) for (j in 0 until ms.length()) {
+                val m = ms.getJSONObject(j)
+                if (m.optString("type") == "node" && m.optString("role") == role) nodes[m.getLong("ref")]?.let { return it }
+            }
+            return null
+        }
+        for (i in 0 until els.length()) {
+            val e = els.getJSONObject(i)
+            if (e.optString("type") != "relation") continue
+            val t = e.optJSONObject("tags") ?: JSONObject()
+            val lim = t.optString("maxspeed", "").trim().takeWhile { it.isDigit() }.toIntOrNull()?.takeIf { it in 1..199 }
+            when (t.optString("enforcement")) {
+                "average_speed" -> {
+                    val a = member(e, "from") ?: continue
+                    val b = member(e, "to") ?: continue
+                    trechos.put(JSONObject().put("aLat", a.first).put("aLon", a.second).put("bLat", b.first).put("bLon", b.second)
+                        .put("lim", lim ?: JSONObject.NULL).put("desc", "OSM " + t.optString("name", "")))
+                }
+                else -> {
+                    val p = member(e, "device", "to", "from") ?: continue
+                    if (!seen.add(String.format(Locale.US, "%.4f,%.4f", p.first, p.second))) continue
+                    val tipo = if (t.optString("enforcement") == "traffic_signals") "semaforo" else "fixo"
+                    out.put(JSONObject().put("lat", p.first).put("lon", p.second).put("lim", lim ?: JSONObject.NULL)
+                        .put("desc", "OSM " + t.optString("name", "")).put("dir", JSONObject.NULL).put("tipo", tipo))
+                }
+            }
+        }
+        for (i in 0 until els.length()) {
+            val e = els.getJSONObject(i)
+            if (!e.has("lat") || !e.has("tags")) continue
             val la = e.getDouble("lat")
             val lo = e.getDouble("lon")
             if (!seen.add(String.format(Locale.US, "%.4f,%.4f", la, lo))) continue
@@ -185,11 +262,35 @@ object Osm {
                     .put("lim", lim ?: JSONObject.NULL)
                     .put("desc", "OSM $name".trim())
                     .put("dir", dirOf(t.optString("direction", "")) ?: JSONObject.NULL)
+                    .put("tipo", Radars.tipoOf("$name ${t.optString("description", "")}"))
             )
         }
         Store.set(c, "radOsm", out.toString())
+        Store.set(c, "osmTrechos", trechos.toString())
         Store.set(c, "osmArea", JSONObject().put("lat", lat).put("lon", lon).put("t", System.currentTimeMillis()).toString())
-        return out.length()
+        return out.length() + trechos.length()
+    }
+}
+
+/* ================= Frases faladas (personalizáveis nos Ajustes) ================= */
+object Frases {
+    val DEF = mapOf(
+        "radar" to "Radar em {distancia} metros. Limite {limite}.",
+        "lombada" to "Lombada eletrônica em {distancia} metros. Limite {limite}.",
+        "semaforo" to "Semáforo com câmera em {distancia} metros.",
+        "excesso" to "Se ferrou! Passou acima da velocidade.",
+        "trechoInicio" to "Início de radar de trecho. Limite {limite}.",
+        "trechoExcesso" to "Média acima do limite no trecho. Reduza.",
+        "trechoFim" to "Fim do trecho. Média de {media} quilômetros por hora."
+    )
+
+    fun get(cfg: JSONObject, key: String, dist: Int? = null, lim: Int? = null, media: Int? = null): String {
+        var t = cfg.optJSONObject("frases")?.optString(key, "")?.takeIf { it.isNotBlank() } ?: DEF[key] ?: ""
+        if (lim == null) t = t.replace(Regex("[^.!?]*\\{limite\\}[^.!?]*[.!?]?"), "")
+        return t.replace("{distancia}", (dist ?: 0).toString())
+            .replace("{limite}", (lim ?: 0).toString())
+            .replace("{media}", (media ?: 0).toString())
+            .trim()
     }
 }
 

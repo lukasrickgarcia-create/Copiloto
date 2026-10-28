@@ -36,8 +36,8 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
- * Serviço em primeiro plano: lê o GPS, avisa radares e excesso de velocidade
- * com a tela apagada ou com outros apps (Waze, Spotify) abertos.
+ * Serviço em primeiro plano: lê o GPS, avisa radares, radar de trecho e excesso de velocidade
+ * com a tela apagada ou com outros apps (Waze, Spotify) abertos. Também registra a viagem.
  */
 class RadarService : Service() {
 
@@ -61,10 +61,12 @@ class RadarService : Service() {
     private val main = Handler(Looper.getMainLooper())
     private lateinit var fused: FusedLocationProviderClient
     private lateinit var am: AudioManager
+    private lateinit var bubble: Bubble
     private var tts: TextToSpeech? = null
     private var ttsOk = false
     private var tone: ToneGenerator? = null
     private var radars: List<Radar> = emptyList()
+    private var trechos: List<Trecho> = emptyList()
     private var cfg = JSONObject()
     private var started = false
 
@@ -72,8 +74,11 @@ class RadarService : Service() {
     private var anchor: Location? = null
     private var heading: Double? = null
     private var lastLoc: Location? = null
+    private var lastKmh = 0.0
     private val alerted = HashMap<String, Long>()
     private val overSpoken = HashMap<String, Long>()
+    private var lastAlert: Radar? = null
+    private var lastAlertAt = 0L
     private var lastBeep = 0L
     private var lastMoving = 0L
     private var exitReq = false
@@ -82,6 +87,20 @@ class RadarService : Service() {
     private var lastOver = false
     private var lastOsmCheck = 0L
     private var osmBusy = false
+
+    // viagem
+    private var tripStart = 0L
+    private var tripDist = 0.0
+    private var tripMovingMs = 0L
+    private var tripMax = 0.0
+    private var tripExcessos = 0
+
+    // radar de trecho
+    private var tAtivo: Trecho? = null
+    private var tStart = 0L
+    private var tDist = 0.0
+    private var tWarned = false
+    private val tCooldown = HashMap<String, Long>()
 
     private val focusReq: AudioFocusRequest by lazy {
         AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
@@ -104,12 +123,14 @@ class RadarService : Service() {
         Notifs.channels(this)
         am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         fused = LocationServices.getFusedLocationProviderClient(this)
+        bubble = Bubble(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             "STOP" -> { stopSelf(); return START_NOT_STICKY }
-            "MARK" -> { if (started) mark(null); return START_NOT_STICKY }
+            "MARK" -> { if (started) mark(null, "fixo"); return START_NOT_STICKY }
+            "IGNORE" -> { if (started) ignoreLast(); return START_NOT_STICKY }
         }
         if (!started) {
             auto = intent?.getBooleanExtra("auto", false) ?: false
@@ -132,7 +153,8 @@ class RadarService : Service() {
     private fun begin() {
         started = true
         inst = this
-        lastMoving = System.currentTimeMillis()
+        tripStart = System.currentTimeMillis()
+        lastMoving = tripStart
         reload()
         tts = TextToSpeech(this) { st ->
             if (st == TextToSpeech.SUCCESS) {
@@ -156,12 +178,14 @@ class RadarService : Service() {
         } catch (e: SecurityException) {
             stopSelf(); return
         }
-        publish(0.0, -1.0, null, false, "")
+        publish(0.0, -1.0, null, false, null)
     }
 
     override fun onDestroy() {
         try { fused.removeLocationUpdates(cb) } catch (e: Exception) { }
         try { am.abandonAudioFocusRequest(focusReq) } catch (e: Exception) { }
+        bubble.remove()
+        if (started) saveTrip()
         tts?.shutdown()
         tone?.release()
         inst = null
@@ -173,6 +197,7 @@ class RadarService : Service() {
     fun reload() {
         cfg = Store.cfg(this)
         radars = Radars.load(this)
+        trechos = Radars.loadTrechos(this)
     }
 
     fun onVehicleExit() { exitReq = true }
@@ -184,7 +209,7 @@ class RadarService : Service() {
         .build()
 
     private fun speak(t: String) {
-        if (!cfg.optBoolean("voz", true) || !ttsOk) return
+        if (t.isBlank() || !cfg.optBoolean("voz", true) || !ttsOk) return
         am.requestAudioFocus(focusReq)
         tts?.speak(t, TextToSpeech.QUEUE_FLUSH, null, "u" + System.nanoTime())
     }
@@ -198,9 +223,16 @@ class RadarService : Service() {
     private fun onLoc(l: Location) {
         val now = System.currentTimeMillis()
         var kmh = if (l.hasSpeed()) l.speed * 3.6 else -1.0
-        prev?.let { p ->
+        val p = prev
+        var step = 0.0
+        if (p != null) {
             val dt = (l.time - p.time) / 1000.0
-            if (kmh < 0 && dt > 0.5) kmh = p.distanceTo(l) / dt * 3.6
+            step = p.distanceTo(l).toDouble()
+            if (kmh < 0 && dt > 0.5) kmh = step / dt * 3.6
+            if (kmh > 5 && dt in 0.0..10.0 && l.accuracy < 35) {
+                tripDist += step
+                tripMovingMs += (dt * 1000).toLong()
+            }
         }
         prev = l
         val a = anchor
@@ -208,7 +240,9 @@ class RadarService : Service() {
         else if (a.distanceTo(l) > 12) { heading = ((a.bearingTo(l).toDouble()) + 360) % 360; anchor = l }
         if (l.hasBearing() && l.hasSpeed() && l.speed > 2) heading = l.bearing.toDouble()
         if (kmh < 2) kmh = 0.0
+        if (l.accuracy < 25 && kmh < 250) tripMax = max(tripMax, kmh)
         lastLoc = l
+        lastKmh = kmh
 
         // desliga sozinho quando estaciona
         if (kmh > 8) lastMoving = now
@@ -221,6 +255,7 @@ class RadarService : Service() {
         }
 
         if (now - lastOsmCheck > 30_000) { lastOsmCheck = now; autoOsm(l) }
+        checkTrecho(l, step, kmh)
         checkRadars(l.latitude, l.longitude, kmh, l.accuracy)
     }
 
@@ -252,40 +287,102 @@ class RadarService : Service() {
 
         val r = best
         if (r == null || bestD > dAviso) {
-            publish(kmh, if (r == null) -1.0 else bestD, null, false, "", acc)
+            publish(kmh, if (r == null) -1.0 else bestD, null, false, null, acc)
             return
         }
         val id = rid(r)
         val lim = r.lim
+        lastAlert = r
+        lastAlertAt = now
         if (!alerted.containsKey(id)) {
             alerted[id] = now
             beep(ToneGenerator.TONE_PROP_BEEP2, 300)
             val m = max(50, ((bestD / 50).roundToInt() * 50))
-            speak("Radar em $m metros." + (if (lim != null) " Limite $lim." else ""))
+            val key = when (r.tipo) { "lombada" -> "lombada"; "semaforo" -> "semaforo"; else -> "radar" }
+            speak(Frases.get(cfg, key, dist = m, lim = lim))
         }
         val over = lim != null && kmh > lim + tol
         if (over) {
             if (now - lastBeep > 1400) { beep(ToneGenerator.TONE_CDMA_HIGH_L, 250); lastBeep = now }
             if (!overSpoken.containsKey(id)) {
                 overSpoken[id] = now
-                main.postDelayed({ speak("Se ferrou! Passou acima da velocidade.") }, 1500)
+                tripExcessos++
+                main.postDelayed({ speak(Frases.get(cfg, "excesso", lim = lim)) }, 1500)
             }
         }
-        publish(kmh, bestD, lim, over, r.desc, acc)
+        publish(kmh, bestD, lim, over, r, acc)
     }
 
-    /* ---------------- estado para a tela + notificação ---------------- */
-    private fun publish(kmh: Double, dist: Double, lim: Int?, over: Boolean, desc: String, acc: Float = -1f) {
+    /* ---------------- radar de trecho (velocidade média) ---------------- */
+    private fun checkTrecho(l: Location, step: Double, kmh: Double) {
+        val now = System.currentTimeMillis()
+        val tol = cfg.optInt("tol", 0)
+        val t = tAtivo
+        if (t == null) {
+            if (kmh < 10) return
+            for (c in trechos) {
+                val k = "${c.aLat},${c.aLon}"
+                if ((tCooldown[k] ?: 0L) > now) continue
+                if (Radars.dist(l.latitude, l.longitude, c.aLat, c.aLon) > 60) continue
+                if (Radars.dist(c.aLat, c.aLon, c.bLat, c.bLon) < 150) continue
+                tAtivo = c; tStart = now; tDist = 0.0; tWarned = false
+                tCooldown[k] = now + 120_000
+                beep(ToneGenerator.TONE_PROP_BEEP2, 300)
+                speak(Frases.get(cfg, "trechoInicio", lim = c.lim))
+                return
+            }
+            return
+        }
+        tDist += step
+        val el = (now - tStart) / 1000.0
+        val media = if (el > 5) tDist / el * 3.6 else kmh
+        val lim = t.lim
+        val toB = Radars.dist(l.latitude, l.longitude, t.bLat, t.bLon)
+        if (toB < 60) {
+            tAtivo = null
+            val acima = lim != null && media > lim + tol
+            speak(Frases.get(cfg, "trechoFim", lim = lim, media = media.roundToInt()))
+            if (acima) {
+                tripExcessos++
+                main.postDelayed({ speak(Frases.get(cfg, "excesso", lim = lim)) }, 3500)
+            }
+            return
+        }
+        val total = Radars.dist(t.aLat, t.aLon, t.bLat, t.bLon)
+        if (el > 3600 || toB > total * 2 + 2000) { tAtivo = null; return }   // saiu do trecho
+        if (lim != null && el > 20) {
+            if (!tWarned && media > lim + tol) {
+                tWarned = true
+                beep(ToneGenerator.TONE_CDMA_HIGH_L, 250)
+                speak(Frases.get(cfg, "trechoExcesso", lim = lim))
+            } else if (tWarned && media < lim - 3) tWarned = false
+        }
+    }
+
+    /* ---------------- estado para a tela + notificação + bolha ---------------- */
+    private fun publish(kmh: Double, dist: Double, lim: Int?, over: Boolean, r: Radar?, acc: Float = -1f) {
         val show = if (cfg.optBoolean("painel", false)) kmh * 1.03 else kmh
+        val t = tAtivo
+        val tJson: Any = if (t == null) JSONObject.NULL else {
+            val el = (System.currentTimeMillis() - tStart) / 1000.0
+            val media = if (el > 5) tDist / el * 3.6 else kmh
+            JSONObject().put("media", media.roundToInt()).put("lim", t.lim ?: JSONObject.NULL)
+                .put("falta", Radars.dist(lastLoc?.latitude ?: t.aLat, lastLoc?.longitude ?: t.aLon, t.bLat, t.bLon).roundToInt())
+        }
         state = JSONObject()
             .put("running", true).put("auto", auto)
             .put("kmh", show.roundToInt()).put("acc", acc.roundToInt())
             .put("dist", dist.roundToInt()).put("lim", lim ?: JSONObject.NULL)
-            .put("over", over).put("desc", desc)
-            .put("count", radars.size)
+            .put("over", over).put("desc", r?.desc ?: "").put("tipo", r?.tipo ?: "")
+            .put("count", radars.size).put("trechos", trechos.size)
             .put("aviso", cfg.optInt("dist", 500))
             .put("gps", lastLoc != null)
+            .put("trecho", tJson)
+            .put("viagem", JSONObject().put("km", Math.round(tripDist / 100) / 10.0).put("max", tripMax.roundToInt()))
             .toString()
+
+        val inRange = dist >= 0 && dist <= cfg.optInt("dist", 500)
+        bubble.update(cfg.optBoolean("bolha", false) && !MainActivity.visible, show.roundToInt(), over, if (inRange) lim else (t?.lim))
 
         val now = System.currentTimeMillis()
         if (now - lastNotif < 1500 && over == lastOver) return
@@ -296,12 +393,15 @@ class RadarService : Service() {
             lastLoc == null -> "Copiloto ativo"
             else -> "${show.roundToInt()} km/h"
         }
+        val nome = when (r?.tipo) { "lombada" -> "Lombada"; "semaforo" -> "Semáforo c/ câmera"; else -> "Radar" }
         val text = when {
             lastLoc == null -> "Procurando sinal do GPS…"
-            dist < 0 -> "Nenhum radar à frente · ${radars.size} radares na base"
-            lim != null || dist <= cfg.optInt("dist", 500) ->
-                "Radar a ${dist.roundToInt()} m" + (if (lim != null) " · limite $lim km/h" else "")
-            else -> "Radar a ${dist.roundToInt()} m (fora do raio de aviso)"
+            t != null -> {
+                val el = (now - tStart) / 1000.0
+                "Radar de trecho · média ${(if (el > 5) tDist / el * 3.6 else kmh).roundToInt()} km/h" + (t.lim?.let { " · limite $it" } ?: "")
+            }
+            inRange -> "$nome a ${dist.roundToInt()} m" + (if (lim != null) " · limite $lim km/h" else "")
+            else -> "Nenhum radar à frente · ${radars.size} radares na base"
         }
         try {
             (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).notify(NID, buildNotif(title, text, over))
@@ -316,6 +416,7 @@ class RadarService : Service() {
         )
         val stop = PendingIntent.getService(this, 1, Intent(this, RadarService::class.java).setAction("STOP"), fl)
         val mark = PendingIntent.getService(this, 2, Intent(this, RadarService::class.java).setAction("MARK"), fl)
+        val ign = PendingIntent.getService(this, 3, Intent(this, RadarService::class.java).setAction("IGNORE"), fl)
         return NotificationCompat.Builder(this, Notifs.CH_RADAR)
             .setSmallIcon(R.drawable.ic_stat)
             .setContentTitle(title)
@@ -327,21 +428,46 @@ class RadarService : Service() {
             .setColor(if (over) 0xFFFF3B3B.toInt() else 0xFF3AA0FF.toInt())
             .setCategory(NotificationCompat.CATEGORY_NAVIGATION)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-            .addAction(0, "Marcar radar aqui", mark)
+            .addAction(0, "Marcar radar", mark)
+            .addAction(0, "Não existe", ign)
             .addAction(0, "Parar", stop)
             .build()
     }
 
-    /* ---------------- marcar radar ---------------- */
-    fun mark(lim: Int?): Boolean {
+    /* ---------------- marcar radar / trecho ---------------- */
+    fun mark(lim: Int?, tipo: String): Boolean {
         val l = lastLoc ?: run { speak("Sem sinal de GPS."); return false }
+        val lat = Math.round(l.latitude * 1e6) / 1e6
+        val lon = Math.round(l.longitude * 1e6) / 1e6
+        when (tipo) {
+            "trecho_ini" -> {
+                Store.set(this, "trechoPend", JSONObject().put("lat", lat).put("lon", lon).put("lim", lim ?: JSONObject.NULL).toString())
+                beep(ToneGenerator.TONE_PROP_ACK, 200)
+                speak("Início do trecho salvo. Marque o fim quando passar pelo último radar.")
+                return true
+            }
+            "trecho_fim" -> {
+                val pend = try { JSONObject(Store.get(this, "trechoPend") ?: "") } catch (e: Exception) { null }
+                if (pend == null) { speak("Marque o início do trecho primeiro."); return false }
+                val arr = try { JSONArray(Store.get(this, "meusTrechos") ?: "[]") } catch (e: Exception) { JSONArray() }
+                val l2 = lim ?: (if (pend.isNull("lim")) null else pend.optInt("lim"))
+                arr.put(JSONObject().put("aLat", pend.getDouble("lat")).put("aLon", pend.getDouble("lon"))
+                    .put("bLat", lat).put("bLon", lon).put("lim", l2 ?: JSONObject.NULL).put("desc", "marcado por você"))
+                Store.set(this, "meusTrechos", arr.toString())
+                Store.set(this, "trechoPend", null)
+                reload()
+                beep(ToneGenerator.TONE_PROP_ACK, 200)
+                speak("Radar de trecho salvo.")
+                return true
+            }
+        }
         val arr = try { JSONArray(Store.get(this, "radMeus") ?: "[]") } catch (e: Exception) { JSONArray() }
         arr.put(
             JSONObject()
-                .put("lat", Math.round(l.latitude * 1e6) / 1e6)
-                .put("lon", Math.round(l.longitude * 1e6) / 1e6)
+                .put("lat", lat).put("lon", lon)
                 .put("lim", lim ?: JSONObject.NULL)
                 .put("desc", "marcado por você")
+                .put("tipo", tipo)
                 .put("dir", heading?.let { Math.round(it).toDouble() } ?: JSONObject.NULL)
         )
         Store.set(this, "radMeus", arr.toString())
@@ -349,6 +475,39 @@ class RadarService : Service() {
         beep(ToneGenerator.TONE_PROP_ACK, 200)
         speak("Radar salvo.")
         return true
+    }
+
+    /** "Esse radar não existe": some da base e não avisa mais. */
+    fun ignoreLast(): Boolean {
+        val r = lastAlert
+        if (r == null || System.currentTimeMillis() - lastAlertAt > 180_000) { speak("Nenhum radar recente para remover."); return false }
+        val arr = try { JSONArray(Store.get(this, "radIgnorados") ?: "[]") } catch (e: Exception) { JSONArray() }
+        arr.put(JSONObject().put("lat", r.lat).put("lon", r.lon).put("desc", r.desc).put("t", System.currentTimeMillis()))
+        Store.set(this, "radIgnorados", arr.toString())
+        lastAlert = null
+        reload()
+        beep(ToneGenerator.TONE_PROP_ACK, 200)
+        speak("Ok, esse radar não vai mais ser avisado.")
+        return true
+    }
+
+    /* ---------------- histórico de viagens ---------------- */
+    private fun saveTrip() {
+        if (tripDist < 500) return
+        val fim = System.currentTimeMillis()
+        val horas = tripMovingMs / 3_600_000.0
+        val v = JSONObject()
+            .put("ini", tripStart).put("fim", fim)
+            .put("km", Math.round(tripDist / 100) / 10.0)
+            .put("max", tripMax.roundToInt())
+            .put("media", if (horas > 0) (tripDist / 1000 / horas).roundToInt() else 0)
+            .put("min", ((fim - tripStart) / 60_000).toInt())
+            .put("excessos", tripExcessos)
+            .put("auto", auto)
+        val arr = try { JSONArray(Store.get(this, "viagens") ?: "[]") } catch (e: Exception) { JSONArray() }
+        val out = JSONArray().put(v)
+        for (i in 0 until minOf(arr.length(), 299)) out.put(arr.get(i))
+        Store.set(this, "viagens", out.toString())
     }
 
     /* ---------------- OpenStreetMap automático ---------------- */
