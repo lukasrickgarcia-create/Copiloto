@@ -145,7 +145,6 @@ class RadarService : Service() {
                     override fun onError(id: String?) { am.abandonAudioFocusRequest(focusReq) }
                 })
                 ttsOk = true
-                speak(if (auto) "Viagem detectada. Radar ligado. ${radars.size} radares." else "Radar ligado. ${radars.size} radares.")
             }
         }
         try { tone = ToneGenerator(AudioManager.STREAM_MUSIC, 100) } catch (e: Exception) { }
@@ -269,7 +268,7 @@ class RadarService : Service() {
             if (now - lastBeep > 1400) { beep(ToneGenerator.TONE_CDMA_HIGH_L, 250); lastBeep = now }
             if (!overSpoken.containsKey(id)) {
                 overSpoken[id] = now
-                main.postDelayed({ speak("Reduza! Limite $lim.") }, 1500)
+                main.postDelayed({ speak("Se ferrou! Passou acima da velocidade.") }, 1500)
             }
         }
         publish(kmh, bestD, lim, over, r.desc, acc)

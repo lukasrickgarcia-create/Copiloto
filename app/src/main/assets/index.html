@@ -292,7 +292,7 @@ function startTrip(){
   prev = anchor = null; heading = null; alerted.clear(); overSpoken.clear();
   watchId = navigator.geolocation.watchPosition(onPos, onErr, {enableHighAccuracy:true, maximumAge:0, timeout:20000});
   reqWake();
-  speak("Viagem iniciada. " + allRadars().length + " radares carregados.");
+  
   $("#btnStart").className = "stop"; $("#btnStart").textContent = "■ Encerrar viagem";
   $("#btnMark").disabled = false;
   $("#statusPill").className = "pill on"; $("#statusPill").textContent = "rodando";
@@ -384,7 +384,7 @@ function checkRadars(lat, lon, kmh){
   box.classList.toggle("over", !!over);
   if (over){
     if (now - lastBeep > 1400){ beep(1500, .25, .5); vibrate(300); lastBeep = now; }
-    if (!overSpoken.has(id)){ overSpoken.set(id, now); setTimeout(() => speak(`Reduza! Limite ${lim}.`), 900); }
+    if (!overSpoken.has(id)){ overSpoken.set(id, now); setTimeout(() => speak("Se ferrou! Passou acima da velocidade."), 900); }
   }
 }
 
