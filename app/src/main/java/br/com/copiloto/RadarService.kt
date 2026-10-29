@@ -414,7 +414,7 @@ class RadarService : Service() {
             if (MainActivity.visible) try { a.web.evaluateJavascript("window.pollNative&&pollNative()", null) } catch (e: Exception) { }
         }
         val inRange = dist >= 0 && dist <= cfg.optInt("dist", 500)
-        bubble.update(cfg.optBoolean("bolha", false) && !MainActivity.visible, show.roundToInt(), over, if (inRange) lim else (t?.lim))
+        bubble.update(cfg.optBoolean("bolha", true) && !MainActivity.visible, show.roundToInt(), over, if (inRange) lim else (t?.lim))
 
         val now = System.currentTimeMillis()
         if (now - lastNotif < 900 && over == lastOver) return

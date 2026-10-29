@@ -35,6 +35,7 @@ class MainActivity : Activity() {
 
     lateinit var web: WebView
     private var pendingBattery = false
+    private var pendingOverlay = false
     private var testTts: TextToSpeech? = null
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -135,7 +136,8 @@ class MainActivity : Activity() {
         super.onResume()
         visible = true
         current = this
-        if (pendingBattery) { pendingBattery = false; finishSetup() }
+        if (pendingBattery) { pendingBattery = false; stepOverlay() }
+        else if (pendingOverlay) { pendingOverlay = false; finishSetup() }
         refreshJs()
     }
 
@@ -191,14 +193,30 @@ class MainActivity : Activity() {
     /** Passo 3: tirar o app da economia de bateria (senão o Android mata o serviço). */
     @SuppressLint("BatteryLife")
     private fun stepBattery() {
-        if (batteryOk()) { finishSetup(); return }
+        if (batteryOk()) { stepOverlay(); return }
         pendingBattery = true
         try {
             startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
         } catch (e: Exception) {
             pendingBattery = false
-            finishSetup()
+            stepOverlay()
         }
+    }
+
+    /** Passo 4: bolha de velocidade por cima de outros apps. */
+    private fun stepOverlay() {
+        if (Settings.canDrawOverlays(this) || !Store.cfg(this).optBoolean("bolha", true)) { finishSetup(); return }
+        AlertDialog.Builder(this)
+            .setTitle("Bolha de velocidade")
+            .setMessage("Para a bolha aparecer por cima do Waze/Maps, ative \"Permitir sobreposição\" para o Copiloto na próxima tela.")
+            .setPositiveButton("Continuar") { _, _ ->
+                pendingOverlay = true
+                try {
+                    startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+                } catch (e: Exception) { pendingOverlay = false; finishSetup() }
+            }
+            .setNegativeButton("Agora não") { _, _ -> finishSetup() }
+            .show()
     }
 
     private fun finishSetup() {

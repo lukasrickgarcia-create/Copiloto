@@ -269,7 +269,7 @@ function httpText(url, opt = {}){
   const init = opt.method ? {method: opt.method, body: opt.body, headers: opt.type ? {"Content-Type": opt.type} : {}} : {};
   return fetch(url, init).then(async r => { if (!r.ok) throw new Error("HTTP " + r.status); return decode(await r.arrayBuffer()); });
 }
-const cfg = Object.assign({dist:500, tol:0, voz:true, bip:true, painel:false, osm:true, auto:true}, LS.get("cfg", {}));
+const cfg = Object.assign({dist:500, tol:0, voz:true, bip:true, painel:false, osm:true, auto:true, bolha:true}, LS.get("cfg", {}));
 const saveCfg = () => LS.set("cfg", cfg);
 
 let radAntt = LS.get("radAntt", []);   // {lat,lon,lim,desc}
@@ -872,10 +872,10 @@ function renderPerm(){
   if (!NATIVE) return;
   let p = {};
   try{ p = JSON.parse(Android.permStatus()); }catch(e){}
-  const ok = p.loc && p.bg && p.act && p.battery;
+  const ok = p.loc && p.bg && p.act && p.battery && (!cfg.bolha || p.overlay);
   const li = (b, t) => `${b ? "✅" : "❌"} ${t}<br>`;
   $("#permInfo").innerHTML = li(p.loc, "Localização") + li(p.bg, "Localização o tempo todo") +
-    li(p.act, "Atividade física (detectar carro)") + li(p.notif, "Notificações") + li(p.battery, "Sem economia de bateria");
+    li(p.act, "Atividade física (detectar carro)") + li(p.notif, "Notificações") + li(p.battery, "Sem economia de bateria") + (cfg.bolha ? li(p.overlay, "Bolha por cima de outros apps") : "");
   $("#btnPerm").textContent = ok ? "Permissões OK — revisar" : "Configurar permissões";
   $("#permWarn").style.display = ok || !cfg.auto ? "none" : "block";
   return ok;
