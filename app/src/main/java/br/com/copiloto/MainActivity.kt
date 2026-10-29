@@ -30,6 +30,7 @@ class MainActivity : Activity() {
 
     companion object {
         @Volatile var visible = false
+        @Volatile var current: MainActivity? = null
     }
 
     lateinit var web: WebView
@@ -82,6 +83,7 @@ class MainActivity : Activity() {
     override fun onPause() {
         super.onPause()
         visible = false
+        current = null
     }
 
     override fun onDestroy() {
@@ -132,6 +134,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         visible = true
+        current = this
         if (pendingBattery) { pendingBattery = false; finishSetup() }
         refreshJs()
     }

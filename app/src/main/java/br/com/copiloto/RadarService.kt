@@ -9,6 +9,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
@@ -17,6 +19,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import androidx.core.app.NotificationCompat
@@ -60,6 +63,8 @@ class RadarService : Service() {
     var auto = false
     private val main = Handler(Looper.getMainLooper())
     private lateinit var fused: FusedLocationProviderClient
+    private lateinit var lm: LocationManager
+    private var lastGpsAt = 0L
     private lateinit var am: AudioManager
     private lateinit var bubble: Bubble
     private var tts: TextToSpeech? = null
@@ -108,10 +113,24 @@ class RadarService : Service() {
             .build()
     }
 
+    // Reserva: só usada se o GPS puro ficar sem sinal (túnel, garagem).
     private val cb = object : LocationCallback() {
         override fun onLocationResult(r: LocationResult) {
+            if (SystemClock.elapsedRealtime() - lastGpsAt < 2500) return
             r.lastLocation?.let { onLoc(it) }
         }
+    }
+
+    // Principal: GPS do aparelho direto, sem a suavização do Google (que atrasa 1–2 s).
+    private val gpsListener = object : LocationListener {
+        override fun onLocationChanged(l: Location) {
+            lastGpsAt = SystemClock.elapsedRealtime()
+            onLoc(l)
+        }
+        override fun onProviderEnabled(provider: String) {}
+        override fun onProviderDisabled(provider: String) {}
+        @Deprecated("Deprecated in Java")
+        override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
     }
 
     fun post(r: () -> Unit) { main.post(r) }
@@ -123,6 +142,7 @@ class RadarService : Service() {
         Notifs.channels(this)
         am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         fused = LocationServices.getFusedLocationProviderClient(this)
+        lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         bubble = Bubble(this)
     }
 
@@ -174,6 +194,9 @@ class RadarService : Service() {
             .setMinUpdateIntervalMillis(500)
             .build()
         try {
+            lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0L, 0f, gpsListener, Looper.getMainLooper())
+        } catch (e: Exception) { }
+        try {
             fused.requestLocationUpdates(req, cb, Looper.getMainLooper())
         } catch (e: SecurityException) {
             stopSelf(); return
@@ -183,6 +206,7 @@ class RadarService : Service() {
 
     override fun onDestroy() {
         try { fused.removeLocationUpdates(cb) } catch (e: Exception) { }
+        try { lm.removeUpdates(gpsListener) } catch (e: Exception) { }
         try { am.abandonAudioFocusRequest(focusReq) } catch (e: Exception) { }
         bubble.remove()
         if (started) saveTrip()
@@ -208,10 +232,10 @@ class RadarService : Service() {
         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
         .build()
 
-    private fun speak(t: String) {
+    private fun speak(t: String, fila: Boolean = false) {
         if (t.isBlank() || !cfg.optBoolean("voz", true) || !ttsOk) return
         am.requestAudioFocus(focusReq)
-        tts?.speak(t, TextToSpeech.QUEUE_FLUSH, null, "u" + System.nanoTime())
+        tts?.speak(t, if (fila) TextToSpeech.QUEUE_ADD else TextToSpeech.QUEUE_FLUSH, null, "u" + System.nanoTime())
     }
 
     private fun beep(type: Int, ms: Int) {
@@ -221,6 +245,7 @@ class RadarService : Service() {
 
     /* ---------------- GPS ---------------- */
     private fun onLoc(l: Location) {
+        prev?.let { if (l.elapsedRealtimeNanos <= it.elapsedRealtimeNanos) return }
         val now = System.currentTimeMillis()
         var kmh = if (l.hasSpeed()) l.speed * 3.6 else -1.0
         val p = prev
@@ -256,12 +281,15 @@ class RadarService : Service() {
 
         if (now - lastOsmCheck > 30_000) { lastOsmCheck = now; autoOsm(l) }
         checkTrecho(l, step, kmh)
-        checkRadars(l.latitude, l.longitude, kmh, l.accuracy)
+        // Compensa o atraso do GPS: o fix chega ~0,5–1 s "velho"; projeta onde o carro está agora.
+        val age = ((SystemClock.elapsedRealtimeNanos() - l.elapsedRealtimeNanos) / 1e9).coerceIn(0.0, 3.0)
+        val adv = if (kmh > 10) kmh / 3.6 * (age + 0.4) else 0.0
+        checkRadars(l.latitude, l.longitude, kmh, l.accuracy, adv)
     }
 
     private fun rid(r: Radar) = String.format(Locale.US, "%.5f,%.5f", r.lat, r.lon)
 
-    private fun checkRadars(lat: Double, lon: Double, kmh: Double, acc: Float) {
+    private fun checkRadars(lat: Double, lon: Double, kmh: Double, acc: Float, adv: Double = 0.0) {
         val now = System.currentTimeMillis()
         val dAviso = cfg.optInt("dist", 500).toDouble()
         val tol = cfg.optInt("tol", 0)
@@ -282,7 +310,8 @@ class RadarService : Service() {
                 if (d > 35 && Radars.angDiff(Radars.bearing(lat, lon, r.lat, r.lon), h) > 50) continue
                 if (r.dir != null && Radars.angDiff(r.dir, h) > 60) continue
             }
-            if (d < bestD) { best = r; bestD = d }
+            val de = max(0.0, d - adv)
+            if (de < bestD) { best = r; bestD = de }
         }
 
         val r = best
@@ -307,7 +336,7 @@ class RadarService : Service() {
             if (!overSpoken.containsKey(id)) {
                 overSpoken[id] = now
                 tripExcessos++
-                main.postDelayed({ speak(Frases.get(cfg, "excesso", lim = lim)) }, 1500)
+                speak(Frases.get(cfg, "excesso", lim = lim), fila = true)
             }
         }
         publish(kmh, bestD, lim, over, r, acc)
@@ -344,7 +373,7 @@ class RadarService : Service() {
             speak(Frases.get(cfg, "trechoFim", lim = lim, media = media.roundToInt()))
             if (acima) {
                 tripExcessos++
-                main.postDelayed({ speak(Frases.get(cfg, "excesso", lim = lim)) }, 3500)
+                speak(Frases.get(cfg, "excesso", lim = lim), fila = true)
             }
             return
         }
@@ -381,11 +410,14 @@ class RadarService : Service() {
             .put("viagem", JSONObject().put("km", Math.round(tripDist / 100) / 10.0).put("max", tripMax.roundToInt()))
             .toString()
 
+        MainActivity.current?.let { a ->
+            if (MainActivity.visible) try { a.web.evaluateJavascript("window.pollNative&&pollNative()", null) } catch (e: Exception) { }
+        }
         val inRange = dist >= 0 && dist <= cfg.optInt("dist", 500)
         bubble.update(cfg.optBoolean("bolha", false) && !MainActivity.visible, show.roundToInt(), over, if (inRange) lim else (t?.lim))
 
         val now = System.currentTimeMillis()
-        if (now - lastNotif < 1500 && over == lastOver) return
+        if (now - lastNotif < 900 && over == lastOver) return
         lastNotif = now
         lastOver = over
         val title = when {

@@ -947,7 +947,7 @@ if (NATIVE){
     setTimeout(() => { reloadData(); renderBase(); }, 500);
   };
   window.onNativeResume = () => { reloadData(); renderBase(); renderPerm(); renderTrips(); pollNative(); };
-  setInterval(pollNative, 1000);
+  setInterval(pollNative, 2000);   // reserva: o app empurra cada atualização do GPS na hora
 }
 
 /* ============ início ============ */
