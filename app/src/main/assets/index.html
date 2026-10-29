@@ -657,6 +657,7 @@ $("#cfgVoz").onchange = e => { cfg.voz = e.target.checked; saveCfg(); };
 $("#cfgBip").onchange = e => { cfg.bip = e.target.checked; saveCfg(); };
 $("#cfgPainel").onchange = e => { cfg.painel = e.target.checked; saveCfg(); };
 $("#btnTeste").onclick = () => {
+  if (NATIVE){ Android.testAlert(frase("radar", {distancia: cfg.dist, limite: 60})); return; }
   try{ actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); }catch(e){}
   beep(880, .12); setTimeout(() => beep(880, .12), 180);
   speak("Radar em " + cfg.dist + " metros. Limite 60.");

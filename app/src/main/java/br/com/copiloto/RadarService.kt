@@ -176,18 +176,17 @@ class RadarService : Service() {
         tripStart = System.currentTimeMillis()
         lastMoving = tripStart
         reload()
-        tts = TextToSpeech(this) { st ->
-            if (st == TextToSpeech.SUCCESS) {
-                tts?.language = Locale("pt", "BR")
-                tts?.setAudioAttributes(speechAttrs())
-                tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                    override fun onStart(id: String?) {}
-                    override fun onDone(id: String?) { am.abandonAudioFocusRequest(focusReq) }
-                    @Deprecated("Deprecated in Java")
-                    override fun onError(id: String?) { am.abandonAudioFocusRequest(focusReq) }
-                })
-                ttsOk = true
-            }
+        Voz.create(this) { t ->
+            if (t == null) return@create
+            if (!started) { t.shutdown(); return@create }
+            t.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                override fun onStart(id: String?) {}
+                override fun onDone(id: String?) { am.abandonAudioFocusRequest(focusReq) }
+                @Deprecated("Deprecated in Java")
+                override fun onError(id: String?) { am.abandonAudioFocusRequest(focusReq) }
+            })
+            tts = t
+            ttsOk = true
         }
         try { tone = ToneGenerator(AudioManager.STREAM_MUSIC, 100) } catch (e: Exception) { }
         val req = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000)

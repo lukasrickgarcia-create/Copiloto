@@ -92,16 +92,23 @@ class MainActivity : Activity() {
         super.onDestroy()
     }
 
-    /** Testar frases nos Ajustes. */
-    fun testSpeak(t: String) {
+    /** Testar som/frases nos Ajustes — usa o mesmo caminho de áudio do radar. */
+    fun testSpeak(t: String, bip: Boolean = false) {
+        if (bip) try {
+            val g = android.media.ToneGenerator(android.media.AudioManager.STREAM_MUSIC, 100)
+            g.startTone(android.media.ToneGenerator.TONE_PROP_BEEP2, 300)
+            web.postDelayed({ g.release() }, 600)
+        } catch (e: Exception) { }
+        val am = getSystemService(AUDIO_SERVICE) as android.media.AudioManager
+        if (am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) == 0) toast("O volume de mídia está no zero. Aumente para ouvir os avisos.")
         val cur = testTts
         if (cur != null) { cur.speak(t, TextToSpeech.QUEUE_FLUSH, null, "teste"); return }
-        var tts: TextToSpeech? = null
-        tts = TextToSpeech(this) { st ->
-            if (st == TextToSpeech.SUCCESS) {
-                tts?.language = Locale("pt", "BR")
+        Voz.create(this) { tts ->
+            runOnUiThread {
+                if (tts == null) { toast("Voz: " + Voz.status); return@runOnUiThread }
                 testTts = tts
-                tts?.speak(t, TextToSpeech.QUEUE_FLUSH, null, "teste")
+                if (Voz.status != "ok") toast("Voz: " + Voz.status)
+                tts.speak(t, TextToSpeech.QUEUE_FLUSH, null, "teste")
             }
         }
     }
@@ -169,6 +176,7 @@ class MainActivity : Activity() {
         .put("notif", Build.VERSION.SDK_INT < 33 || granted(Manifest.permission.POST_NOTIFICATIONS))
         .put("battery", batteryOk())
         .put("overlay", Settings.canDrawOverlays(this))
+        .put("voz", Voz.status)
         .toString()
 
     /** Passo 1: localização, atividade física e notificações. */
@@ -301,6 +309,11 @@ class Bridge(private val a: MainActivity) {
     @JavascriptInterface
     fun speak(t: String) {
         a.runOnUiThread { a.testSpeak(t) }
+    }
+
+    @JavascriptInterface
+    fun testAlert(t: String) {
+        a.runOnUiThread { a.testSpeak(t, true) }
     }
 
     @JavascriptInterface

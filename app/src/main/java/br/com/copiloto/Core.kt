@@ -9,7 +9,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
 import android.os.Build
+import android.speech.tts.TextToSpeech
 import androidx.core.app.NotificationCompat
 import com.google.android.gms.location.ActivityRecognition
 import com.google.android.gms.location.ActivityTransition
@@ -385,5 +387,47 @@ object Notifs {
         try {
             (c.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).notify(8, n)
         } catch (e: Exception) { }
+    }
+}
+
+
+/* ================= Voz (TTS) com fallback ================= */
+object Voz {
+    @Volatile var status: String = "não iniciada"
+
+    val attrs: AudioAttributes = AudioAttributes.Builder()
+        .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+        .build()
+
+    /** Cria o TTS tentando o motor padrão e depois o do Google; acerta o idioma pt-BR. */
+    fun create(c: Context, onReady: (TextToSpeech?) -> Unit) {
+        tryEngine(c, null) { t ->
+            if (t != null) onReady(t)
+            else tryEngine(c, "com.google.android.tts") { g ->
+                if (g == null) status = "sem mecanismo de voz — instale \"Serviços de fala do Google\" na Play Store"
+                onReady(g)
+            }
+        }
+    }
+
+    private fun tryEngine(c: Context, engine: String?, cb: (TextToSpeech?) -> Unit) {
+        var tts: TextToSpeech? = null
+        val listener = TextToSpeech.OnInitListener { st ->
+            val t = tts
+            if (st != TextToSpeech.SUCCESS || t == null) { try { t?.shutdown() } catch (e: Exception) { }; cb(null); return@OnInitListener }
+            var r = t.setLanguage(Locale("pt", "BR"))
+            if (r < 0) r = t.setLanguage(Locale("pt"))
+            status = if (r < 0) {
+                t.setLanguage(Locale.getDefault())
+                "voz em português não instalada — em Configurações > Sistema > Idiomas > Saída de conversão de texto em voz, baixe Português (Brasil)"
+            } else "ok"
+            t.setAudioAttributes(attrs)
+            cb(t)
+        }
+        tts = try {
+            if (engine == null) TextToSpeech(c.applicationContext, listener) else TextToSpeech(c.applicationContext, listener, engine)
+        } catch (e: Exception) { null }
+        if (tts == null) cb(null)
     }
 }
