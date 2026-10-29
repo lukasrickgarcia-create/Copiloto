@@ -85,6 +85,38 @@ class RadarService : Service() {
     private var lastAlert: Radar? = null
     private var lastAlertAt = 0L
     private var lastBeep = 0L
+
+    // Alarme de excesso: bip contínuo e rápido + vibração até reduzir ou sair do raio do radar.
+    private var alarmOn = false
+    private var alarmStep = 0
+    private val alarm = object : Runnable {
+        override fun run() {
+            if (!alarmOn) return
+            if (cfg.optBoolean("bip", true)) try {
+                tone?.startTone(if (alarmStep % 2 == 0) ToneGenerator.TONE_CDMA_HIGH_L else ToneGenerator.TONE_CDMA_MED_L, 180)
+            } catch (e: Exception) { }
+            if (alarmStep % 3 == 0) vibrate(longArrayOf(0, 250))
+            alarmStep++
+            main.postDelayed(this, 300)
+        }
+    }
+    private fun startAlarm() {
+        if (alarmOn) return
+        alarmOn = true; alarmStep = 0
+        main.post(alarm)
+    }
+    private fun stopAlarm() {
+        alarmOn = false
+        main.removeCallbacks(alarm)
+    }
+    private fun vibrate(p: LongArray) {
+        try {
+            val v = if (Build.VERSION.SDK_INT >= 31)
+                (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as android.os.VibratorManager).defaultVibrator
+            else @Suppress("DEPRECATION") (getSystemService(Context.VIBRATOR_SERVICE) as android.os.Vibrator)
+            v.vibrate(android.os.VibrationEffect.createWaveform(p, -1))
+        } catch (e: Exception) { }
+    }
     private var lastMoving = 0L
     private var exitReq = false
     private var slowSince = 0L
@@ -207,6 +239,7 @@ class RadarService : Service() {
         try { fused.removeLocationUpdates(cb) } catch (e: Exception) { }
         try { lm.removeUpdates(gpsListener) } catch (e: Exception) { }
         try { am.abandonAudioFocusRequest(focusReq) } catch (e: Exception) { }
+        stopAlarm()
         bubble.remove()
         if (started) saveTrip()
         tts?.shutdown()
@@ -315,6 +348,7 @@ class RadarService : Service() {
 
         val r = best
         if (r == null || bestD > dAviso) {
+            stopAlarm()
             publish(kmh, if (r == null) -1.0 else bestD, null, false, null, acc)
             return
         }
@@ -330,8 +364,9 @@ class RadarService : Service() {
             speak(Frases.get(cfg, key, dist = m, lim = lim))
         }
         val over = lim != null && kmh > lim + tol
+        if (!over) stopAlarm()
         if (over) {
-            if (now - lastBeep > 1400) { beep(ToneGenerator.TONE_CDMA_HIGH_L, 250); lastBeep = now }
+            startAlarm()
             if (!overSpoken.containsKey(id)) {
                 overSpoken[id] = now
                 tripExcessos++
