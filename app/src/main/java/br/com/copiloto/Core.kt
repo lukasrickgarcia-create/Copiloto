@@ -312,12 +312,13 @@ object Detector {
     @SuppressLint("MissingPermission")
     fun register(c: Context) {
         if (!canRun(c)) return
-        val ts = listOf(ActivityTransition.ACTIVITY_TRANSITION_ENTER, ActivityTransition.ACTIVITY_TRANSITION_EXIT).map {
-            ActivityTransition.Builder()
-                .setActivityType(DetectedActivity.IN_VEHICLE)
-                .setActivityTransition(it)
-                .build()
-        }
+        fun t(type: Int, tr: Int) = ActivityTransition.Builder().setActivityType(type).setActivityTransition(tr).build()
+        val ts = listOf(
+            t(DetectedActivity.IN_VEHICLE, ActivityTransition.ACTIVITY_TRANSITION_ENTER),
+            t(DetectedActivity.IN_VEHICLE, ActivityTransition.ACTIVITY_TRANSITION_EXIT),
+            t(DetectedActivity.WALKING, ActivityTransition.ACTIVITY_TRANSITION_ENTER),
+            t(DetectedActivity.ON_FOOT, ActivityTransition.ACTIVITY_TRANSITION_ENTER)
+        )
         try {
             ActivityRecognition.getClient(c).requestActivityTransitionUpdates(ActivityTransitionRequest(ts), pi(c))
         } catch (e: Exception) { }
@@ -339,9 +340,11 @@ class TransitionReceiver : BroadcastReceiver() {
         val r = ActivityTransitionResult.extractResult(i) ?: return
         if (!Store.cfg(c).optBoolean("auto", true)) return
         for (e in r.transitionEvents) {
-            if (e.activityType != DetectedActivity.IN_VEHICLE) continue
-            if (e.transitionType == ActivityTransition.ACTIVITY_TRANSITION_ENTER) RadarService.start(c, true)
-            else RadarService.inst?.let { s -> s.post { s.onVehicleExit() } }
+            val enterCar = e.activityType == DetectedActivity.IN_VEHICLE && e.transitionType == ActivityTransition.ACTIVITY_TRANSITION_ENTER
+            if (enterCar) { MoveWatch.stop(c); RadarService.start(c, true); continue }
+            // saiu do carro (ou começou a andar a pé): desliga rápido
+            MoveWatch.stop(c)
+            RadarService.inst?.let { s -> s.post { s.onVehicleExit() } }
         }
     }
 }
@@ -429,5 +432,57 @@ object Voz {
             if (engine == null) TextToSpeech(c.applicationContext, listener) else TextToSpeech(c.applicationContext, listener, engine)
         } catch (e: Exception) { null }
         if (tts == null) cb(null)
+    }
+}
+
+
+/* ================= Vigia de movimento ================= */
+/**
+ * Depois que o radar desliga por ficar parado (trânsito parado, estacionou), fica "de olho" com o GPS
+ * econômico: se o carro voltar a andar, religa sozinho. Para ao detectar caminhada ou após 3 h.
+ */
+object MoveWatch {
+    private fun pi(c: Context): PendingIntent {
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+            (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0)
+        return PendingIntent.getBroadcast(c, 11, Intent(c, MoveReceiver::class.java), flags)
+    }
+
+    @SuppressLint("MissingPermission")
+    fun start(c: Context, lat: Double, lon: Double) {
+        Store.set(c, "vigia", JSONObject().put("lat", lat).put("lon", lon).put("t", System.currentTimeMillis()).toString())
+        try {
+            val req = com.google.android.gms.location.LocationRequest.Builder(
+                com.google.android.gms.location.Priority.PRIORITY_BALANCED_POWER_ACCURACY, 30_000
+            ).setMinUpdateIntervalMillis(15_000).build()
+            com.google.android.gms.location.LocationServices.getFusedLocationProviderClient(c).requestLocationUpdates(req, pi(c))
+        } catch (e: Exception) { }
+    }
+
+    fun stop(c: Context) {
+        if (Store.get(c, "vigia") == null) return
+        Store.set(c, "vigia", null)
+        try { com.google.android.gms.location.LocationServices.getFusedLocationProviderClient(c).removeLocationUpdates(pi(c)) } catch (e: Exception) { }
+    }
+}
+
+class MoveReceiver : BroadcastReceiver() {
+    override fun onReceive(c: Context, i: Intent) {
+        val res = com.google.android.gms.location.LocationResult.extractResult(i) ?: return
+        val w = try { JSONObject(Store.get(c, "vigia") ?: "") } catch (e: Exception) { null }
+        if (w == null) { MoveWatch.stop(c); return }
+        if (System.currentTimeMillis() - w.optLong("t") > 3 * 3_600_000L) { MoveWatch.stop(c); return }
+        val l = res.lastLocation ?: return
+        // velocidade entre esta leitura e a anterior (andar a pé nunca passa de ~2 m/s)
+        val pt = w.optLong("pt", 0L)
+        val dt = (System.currentTimeMillis() - pt) / 1000.0
+        val v = if (pt > 0 && dt in 5.0..300.0)
+            Radars.dist(w.optDouble("plat"), w.optDouble("plon"), l.latitude, l.longitude) / dt else 0.0
+        Store.set(c, "vigia", w.put("plat", l.latitude).put("plon", l.longitude).put("pt", System.currentTimeMillis()).toString())
+        val fast = (l.hasSpeed() && l.speed > 6f) || v > 6.0      // > ~22 km/h
+        if (fast) {
+            MoveWatch.stop(c)
+            if (Store.cfg(c).optBoolean("auto", true)) RadarService.start(c, true)
+        }
     }
 }

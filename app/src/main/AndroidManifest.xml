@@ -51,6 +51,10 @@
             android:exported="false" />
 
         <receiver
+            android:name=".MoveReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".BootReceiver"
             android:exported="true">
             <intent-filter>

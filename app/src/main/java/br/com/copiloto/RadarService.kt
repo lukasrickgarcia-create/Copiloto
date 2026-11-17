@@ -117,7 +117,18 @@ class RadarService : Service() {
             v.vibrate(android.os.VibrationEffect.createWaveform(p, -1))
         } catch (e: Exception) { }
     }
-    private var lastMoving = 0L
+    // mapa de vias e rua atual
+    private val roads by lazy { RoadTiles(this) }
+    private var match: Match? = null
+    private var roadLim: Int? = null
+    private var roadName = ""
+    private var snapNet: RoadNet? = null
+    private val snapCache = HashMap<String, List<Snap>>()
+
+    // parado (para desligar sozinho)
+    private var stillLat = 0.0
+    private var stillLon = 0.0
+    private var stillSince = 0L
     private var exitReq = false
     private var slowSince = 0L
     private var lastNotif = 0L
@@ -206,7 +217,8 @@ class RadarService : Service() {
         started = true
         inst = this
         tripStart = System.currentTimeMillis()
-        lastMoving = tripStart
+        stillSince = tripStart
+        MoveWatch.stop(this)
         reload()
         Voz.create(this) { t ->
             if (t == null) return@create
@@ -302,17 +314,32 @@ class RadarService : Service() {
         lastKmh = kmh
 
         // desliga sozinho quando estaciona
-        if (kmh > 8) lastMoving = now
-        if (auto && now - lastMoving > 5 * 60_000) { stopSelf(); return }
+        if (stillSince == 0L || Radars.dist(stillLat, stillLon, l.latitude, l.longitude) > 60) {
+            stillLat = l.latitude; stillLon = l.longitude; stillSince = now
+        }
         if (exitReq) {
             if (kmh < 10) {
                 if (slowSince == 0L) slowSince = now
-                if (now - slowSince > 30_000) { stopSelf(); return }
+                if (now - slowSince > 10_000) { MoveWatch.start(this, l.latitude, l.longitude); stopSelf(); return }
             } else { slowSince = 0L; exitReq = false }
         }
+        if (auto && now - stillSince > 4 * 60_000) {
+            // parado há 4 min: desliga e fica só "de olho" para religar se o carro andar
+            MoveWatch.start(this, l.latitude, l.longitude)
+            stopSelf(); return
+        }
+
+        // em qual rua estou
+        roads.ensure(l.latitude, l.longitude, heading, true)
+        val net = roads.net
+        if (net !== snapNet) { snapNet = net; snapCache.clear(); match = null }
+        match = if (net.isEmpty) null
+            else net.match(l.latitude, l.longitude, if (kmh > 6) heading else null, match, l.accuracy.toDouble())
+        roadLim = match?.let { net.roadLimit(it) }
+        roadName = match?.let { net.roadName(it) } ?: ""
 
         if (now - lastOsmCheck > 30_000) { lastOsmCheck = now; autoOsm(l) }
-        checkTrecho(l, step, kmh)
+        checkTrecho(l, step, kmh, net)
         // Compensa o atraso do GPS: o fix chega ~0,5–1 s "velho"; projeta onde o carro está agora.
         val age = ((SystemClock.elapsedRealtimeNanos() - l.elapsedRealtimeNanos) / 1e9).coerceIn(0.0, 3.0)
         val adv = if (kmh > 10) kmh / 3.6 * (age + 0.4) else 0.0
@@ -329,19 +356,26 @@ class RadarService : Service() {
         alerted.entries.removeAll { now - it.value > 240_000 }
         overSpoken.entries.removeAll { now - it.value > 240_000 }
 
+        val net = roads.net
+        val m = match
+        val ahead = if (m != null) net.walk(m, maxD + 50) else null
+        val h = heading
         val dLat = maxD / 111000.0
         val dLon = dLat / max(0.2, cos(Math.toRadians(lat)))
-        val h = heading
         var best: Radar? = null
         var bestD = Double.MAX_VALUE
         for (r in radars) {
             if (Math.abs(r.lat - lat) > dLat || Math.abs(r.lon - lon) > dLon) continue
-            val d = Radars.dist(lat, lon, r.lat, r.lon)
-            if (d > maxD) continue
-            if (h != null && kmh > 10) {
-                if (d > 35 && Radars.angDiff(Radars.bearing(lat, lon, r.lat, r.lon), h) > 50) continue
-                if (r.dir != null && Radars.angDiff(r.dir, h) > 60) continue
-            }
+            val straight = Radars.dist(lat, lon, r.lat, r.lon)
+            if (straight > maxD) continue
+            val corridorOk = h != null && Corridor.ahead(lat, lon, h, r.lat, r.lon, straight) &&
+                (r.dir == null || Radars.angDiff(r.dir, h) <= 60)
+            val d: Double? = if (ahead != null) {
+                val sn = snapCache.getOrPut(rid(r)) { net.snap(r.lat, r.lon) }
+                // radar fora das vias do mapa (coordenada imprecisa): usa o corredor à frente
+                if (sn.isEmpty()) (if (corridorOk) straight else null) else net.routeDistance(ahead, sn, r.dir)
+            } else if (corridorOk) straight else null
+            if (d == null) continue
             val de = max(0.0, d - adv)
             if (de < bestD) { best = r; bestD = de }
         }
@@ -353,15 +387,15 @@ class RadarService : Service() {
             return
         }
         val id = rid(r)
-        val lim = r.lim
+        val lim = r.lim ?: roadLim
         lastAlert = r
         lastAlertAt = now
         if (!alerted.containsKey(id)) {
             alerted[id] = now
             beep(ToneGenerator.TONE_PROP_BEEP2, 300)
-            val m = max(50, ((bestD / 50).roundToInt() * 50))
+            val mm = max(50, ((bestD / 50).roundToInt() * 50))
             val key = when (r.tipo) { "lombada" -> "lombada"; "semaforo" -> "semaforo"; else -> "radar" }
-            speak(Frases.get(cfg, key, dist = m, lim = lim))
+            speak(Frases.get(cfg, key, dist = mm, lim = lim))
         }
         val over = lim != null && kmh > lim + tol
         if (!over) stopAlarm()
@@ -377,7 +411,7 @@ class RadarService : Service() {
     }
 
     /* ---------------- radar de trecho (velocidade média) ---------------- */
-    private fun checkTrecho(l: Location, step: Double, kmh: Double) {
+    private fun checkTrecho(l: Location, step: Double, kmh: Double, net: RoadNet) {
         val now = System.currentTimeMillis()
         val tol = cfg.optInt("tol", 0)
         val t = tAtivo
@@ -388,6 +422,11 @@ class RadarService : Service() {
                 if ((tCooldown[k] ?: 0L) > now) continue
                 if (Radars.dist(l.latitude, l.longitude, c.aLat, c.aLon) > 60) continue
                 if (Radars.dist(c.aLat, c.aLon, c.bLat, c.bLon) < 150) continue
+                val m = match
+                if (m != null) {
+                    val sn = net.snap(c.aLat, c.aLon)
+                    if (sn.isNotEmpty() && net.routeDistance(net.walk(m, 150.0), sn, behind = 90.0) == null) continue
+                }
                 tAtivo = c; tStart = now; tDist = 0.0; tWarned = false
                 tCooldown[k] = now + 120_000
                 beep(ToneGenerator.TONE_PROP_BEEP2, 300)
@@ -432,8 +471,12 @@ class RadarService : Service() {
             JSONObject().put("media", media.roundToInt()).put("lim", t.lim ?: JSONObject.NULL)
                 .put("falta", Radars.dist(lastLoc?.latitude ?: t.aLat, lastLoc?.longitude ?: t.aLon, t.bLat, t.bLon).roundToInt())
         }
+        val tolV = cfg.optInt("tol", 0)
+        val overRoad = roadLim != null && kmh > roadLim!! + tolV
         state = JSONObject()
             .put("running", true).put("auto", auto)
+            .put("roadLim", roadLim ?: JSONObject.NULL).put("road", roadName)
+            .put("overRoad", overRoad).put("mapa", roads.status).put("naRua", match != null)
             .put("kmh", show.roundToInt()).put("acc", acc.roundToInt())
             .put("dist", dist.roundToInt()).put("lim", lim ?: JSONObject.NULL)
             .put("over", over).put("desc", r?.desc ?: "").put("tipo", r?.tipo ?: "")
@@ -448,7 +491,8 @@ class RadarService : Service() {
             if (MainActivity.visible) try { a.web.evaluateJavascript("window.pollNative&&pollNative()", null) } catch (e: Exception) { }
         }
         val inRange = dist >= 0 && dist <= cfg.optInt("dist", 500)
-        bubble.update(cfg.optBoolean("bolha", true) && !MainActivity.visible, show.roundToInt(), over, if (inRange) lim else (t?.lim))
+        bubble.update(cfg.optBoolean("bolha", true) && !MainActivity.visible, show.roundToInt(), over,
+            if (inRange) lim else (t?.lim ?: roadLim), overRoad)
 
         val now = System.currentTimeMillis()
         if (now - lastNotif < 900 && over == lastOver) return
@@ -457,7 +501,7 @@ class RadarService : Service() {
         val title = when {
             over -> "⚠ ACIMA DO LIMITE — ${show.roundToInt()} km/h (limite $lim)"
             lastLoc == null -> "Copiloto ativo"
-            else -> "${show.roundToInt()} km/h"
+            else -> "${show.roundToInt()} km/h" + (roadLim?.let { " · via $it" } ?: "") + (if (roadName.isNotEmpty()) " · $roadName" else "")
         }
         val nome = when (r?.tipo) { "lombada" -> "Lombada"; "semaforo" -> "Semáforo c/ câmera"; else -> "Radar" }
         val text = when {

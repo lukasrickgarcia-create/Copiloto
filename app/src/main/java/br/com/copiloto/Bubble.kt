@@ -38,11 +38,12 @@ class Bubble(private val c: Context) {
         y = pos.optInt("y", 300)
     }
 
-    fun update(show: Boolean, kmh: Int, over: Boolean, lim: Int?) {
+    fun update(show: Boolean, kmh: Int, over: Boolean, lim: Int?, warn: Boolean = false) {
         if (!show || !Settings.canDrawOverlays(c)) { remove(); return }
         if (v == null && !add()) return
         val color = when {
             over -> 0xEEE53935.toInt()
+            warn -> 0xEEF57C00.toInt()
             lim != null -> 0xEE1B2430.toInt()
             else -> 0xDD0B0F14.toInt()
         }
