@@ -38,6 +38,9 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+    testOptions {
+        unitTests.all { it.testLogging { events("passed", "failed", "skipped"); showStandardStreams = true } }
+    }
     lint {
         checkReleaseBuilds = false
         abortOnError = false
@@ -49,4 +52,5 @@ dependencies {
     implementation("androidx.webkit:webkit:1.12.1")
     implementation("com.google.android.gms:play-services-location:21.3.0")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }

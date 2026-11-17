@@ -37,17 +37,56 @@ button:disabled{opacity:.45}
 .mt{margin-top:10px}
 .small{font-size:13px;color:var(--mut);line-height:1.45}
 /* velocímetro */
-#speedBox{text-align:center;border-radius:20px;padding:22px 10px 16px;background:var(--card);border:2px solid var(--line);transition:background .2s,border-color .2s}
-#speedBox.over{background:#3a0b0b;border-color:var(--bad);animation:pisca .8s infinite}
-@keyframes pisca{50%{background:#5c1010}}
-#speed{font-size:104px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+
+
+
 #speedUnit{color:var(--mut);font-size:16px}
-#limBadge{display:inline-flex;align-items:center;justify-content:center;width:64px;height:64px;border-radius:50%;border:7px solid var(--bad);background:#fff;color:#111;font-weight:800;font-size:24px;margin-top:10px}
-#limBadge.none{opacity:.15}
-#radarCard .big{font-size:30px;font-weight:800;color:var(--tx)}
+
+
+
+/* ===== tela de direção ===== */
+.hud{display:flex;flex-direction:column;gap:12px}
+.road{font-size:20px;font-weight:700;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:26px;color:var(--tx)}
+#speedBox{position:relative;display:flex;align-items:center;justify-content:center;gap:18px;border-radius:28px;padding:18px 16px;background:var(--card);border:3px solid var(--line);transition:background .15s,border-color .15s}
+#speedBox.warn{border-color:#f57c00;background:#2e1b06}
+#speedBox.over{background:#4a0b0b;border-color:var(--bad);animation:pisca .6s infinite}
+@keyframes pisca{50%{background:#7a1010}}
+.speedWrap{text-align:center}
+#speed{font-size:clamp(96px,30vw,150px);font-weight:800;line-height:.95;font-variant-numeric:tabular-nums;letter-spacing:-3px}
+#speedUnit{color:var(--mut);font-size:15px;margin-top:2px}
+.signs{display:flex;flex-direction:column;gap:10px}
+.signBox{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.6px}
+.sign{display:inline-flex;align-items:center;justify-content:center;width:72px;height:72px;border-radius:50%;border:8px solid #e53935;background:#fff;color:#111;font-weight:800;font-size:26px;flex:0 0 auto}
+.sign.none{background:transparent;border-color:var(--line);color:var(--mut);font-size:18px}
+#gpsInfo{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--mut)}
+#radarCard{background:var(--card);border:2px solid var(--line);border-radius:20px;padding:14px 16px}
+#radarCard.near{border-color:var(--warn);background:#2a2208}
+#radarCard.over{border-color:var(--bad);background:#3a0b0b}
+#radarCard.idle .radarTop{opacity:.6}
+.radarTop{display:flex;align-items:center;gap:14px}
+.ico{font-size:34px;width:44px;text-align:center}
+.radarMid{flex:1;min-width:0}
+.dist{font-size:40px;font-weight:800;line-height:1.05;font-variant-numeric:tabular-nums}
+#radarTxt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#radarCard .sign{width:62px;height:62px;border-width:7px;font-size:22px}
+#trechoCard{background:var(--card);border:2px solid var(--warn);border-radius:20px;padding:12px 16px}
+#trechoCard.over{border-color:var(--bad);background:#3a0b0b}
+.lbl{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px}
+.actions{display:flex;gap:10px}
+.actions button{flex:1;font-size:18px;padding:18px 10px}
+.actions #btnStart{flex:1.2}
+button.ghost{background:none;border:1px solid var(--line);color:var(--mut);font-size:14px;padding:10px;margin-top:10px}
+#radarHint{text-align:center;margin:0}
+@media (orientation:landscape) and (max-height:600px){
+  header{display:none}
+  .hud{flex-direction:row;align-items:stretch}
+  .hud-main,.hud-side{flex:1;display:flex;flex-direction:column;gap:10px;justify-content:center}
+  #speed{font-size:clamp(90px,22vh,170px)}
+  #radarHint{display:none}
+}
 .bar{height:10px;background:var(--card2);border-radius:99px;overflow:hidden;margin-top:10px}
 .bar>div{height:100%;width:0;background:var(--warn);transition:width .3s}
-#gpsInfo{display:flex;justify-content:space-between;font-size:12px;color:var(--mut);margin-top:10px}
+
 /* navegação */
 nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:#0f151c;border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
 nav button{background:none;border-radius:0;color:var(--mut);font-size:12px;padding:10px 0 12px;display:flex;flex-direction:column;align-items:center;gap:3px}
@@ -76,8 +115,8 @@ input[type=range]{padding:0;height:36px;background:none;border:0;accent-color:va
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
 .chips button{width:auto;padding:9px 12px;font-size:14px}
 .chips button.sel{background:var(--acc);color:#fff}
-#trechoCard{border-color:var(--warn)}
-#trechoCard.over{border-color:var(--bad);background:#3a0b0b}
+
+
 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center}
 .stats b{display:block;font-size:22px}
 .frase label{margin-top:12px}
@@ -93,29 +132,48 @@ input[type=range]{padding:0;height:36px;background:none;border:0;accent-color:va
 <main>
 <!-- ================= RADAR ================= -->
 <section id="tab-radar" class="act">
-  <div id="speedBox">
-    <div id="speed">--</div>
-    <div id="speedUnit">km/h</div>
-    <div id="limBadge" class="none">--</div>
+ <div class="hud">
+  <div class="hud-main">
+    <div id="roadName" class="road">—</div>
+    <div id="speedBox">
+      <div class="speedWrap">
+        <div id="speed">--</div>
+        <div id="speedUnit">km/h</div>
+      </div>
+      <div class="signs">
+        <div class="signBox"><div id="roadLim" class="sign none">--</div><span>via</span></div>
+      </div>
+    </div>
+    <div id="gpsInfo"><span id="gpsAcc">GPS: --</span><span id="mapInfo"></span><span id="radCount">0 radares</span></div>
   </div>
 
-  <div class="card mt" id="trechoCard" style="display:none">
-    <h2>Radar de trecho</h2>
-    <div id="trechoTxt"></div>
-  </div>
+  <div class="hud-side">
+    <div id="trechoCard" style="display:none">
+      <div class="lbl">Radar de trecho</div>
+      <div id="trechoTxt"></div>
+    </div>
 
-  <div class="card mt" id="radarCard">
-    <h2>Próximo radar</h2>
-    <div id="radarTxt" class="small">Toque em “Iniciar viagem”.</div>
-    <div class="bar"><div id="radarBar"></div></div>
-    <div id="gpsInfo"><span id="gpsAcc">GPS: --</span><span id="radCount">0 radares</span></div>
-    <button id="btnIgnore" class="mt" style="display:none">🚫 Esse radar não existe</button>
-  </div>
+    <div id="radarCard" class="idle">
+      <div class="radarTop">
+        <div id="radarIco" class="ico">📷</div>
+        <div class="radarMid">
+          <div id="radarDist" class="dist">—</div>
+          <div id="radarTxt" class="small">Nenhum radar à frente</div>
+        </div>
+        <div id="limBadge" class="sign none">--</div>
+      </div>
+      <div class="bar"><div id="radarBar"></div></div>
+      <button id="btnIgnore" class="ghost" style="display:none">🚫 Esse radar não existe</button>
+    </div>
 
-  <div id="permWarn" class="msg err" style="display:none;margin-bottom:12px">Para o radar ligar sozinho, falta liberar permissões. <b>Toque aqui.</b></div>
-  <button id="btnStart" class="go">▶ Iniciar viagem</button>
-  <button id="btnMark" class="mt" disabled>📍 Marcar radar aqui</button>
-  <p class="small mt" id="radarHint">Mantenha a tela ligada (o app tenta travar a tela acesa sozinho). Use o celular num suporte e não mexa nele dirigindo.</p>
+    <div id="permWarn" class="msg err" style="display:none">Para o radar ligar sozinho, falta liberar permissões. <b>Toque aqui.</b></div>
+    <div class="actions">
+      <button id="btnMark" disabled>📍 Marcar radar</button>
+      <button id="btnStart" class="go">▶ Ligar</button>
+    </div>
+    <p class="small" id="radarHint">Mantenha a tela ligada e use o celular num suporte.</p>
+  </div>
+ </div>
 </section>
 
 <!-- ================= VIAGENS ================= -->
@@ -889,45 +947,57 @@ function pollNative(){
   nativeRunning = !!s.running;
   const btn = $("#btnStart"), pill = $("#statusPill");
   btn.className = s.running ? "stop" : "go";
-  btn.textContent = s.running ? "■ Parar radar" : "▶ Ligar radar agora";
+  btn.textContent = s.running ? "■ Parar" : "▶ Ligar";
   $("#btnMark").disabled = !s.running;
   if (s.running){
     pill.className = "pill on"; pill.textContent = s.auto ? "automático" : "ligado";
   } else {
     pill.className = "pill"; pill.textContent = cfg.auto ? "aguardando carro" : "desligado";
   }
-  const box = $("#speedBox"), badge = $("#limBadge");
+  const box = $("#speedBox"), badge = $("#limBadge"), card = $("#radarCard"), rl = $("#roadLim");
   const tc = $("#trechoCard");
+  const setSign = (el, v) => { el.className = v ? "sign" : "sign none"; el.textContent = v || "--"; };
   if (s.running && s.trecho){
     const t = s.trecho, over = t.lim && t.media > t.lim + cfg.tol;
     tc.style.display = "block"; tc.classList.toggle("over", !!over);
-    $("#trechoTxt").innerHTML = `<div class="big" style="font-size:30px;font-weight:800">${t.media} km/h <span class="small">média</span></div>` +
-      `${t.lim ? "Limite " + t.lim + " km/h · " : ""}faltam ${(t.falta / 1000).toLocaleString("pt-BR", {maximumFractionDigits:1})} km`;
+    $("#trechoTxt").innerHTML = `<div class="dist">${t.media} <span class="small">km/h de média</span></div>` +
+      `<span class="small">${t.lim ? "Limite " + t.lim + " km/h · " : ""}faltam ${(t.falta / 1000).toLocaleString("pt-BR", {maximumFractionDigits:1})} km</span>`;
   } else tc.style.display = "none";
-  $("#btnIgnore").style.display = s.running && s.dist >= 0 && s.dist <= s.aviso ? "block" : "none";
+  const near = s.running && s.dist >= 0 && s.dist <= s.aviso;
+  $("#btnIgnore").style.display = near ? "block" : "none";
   if (!s.running){
-    $("#speed").textContent = "--"; box.classList.remove("over");
-    badge.className = "none"; badge.textContent = "--"; $("#radarBar").style.width = "0";
-    $("#radarTxt").textContent = cfg.auto ? "O radar liga sozinho quando você começar a dirigir." : "Toque em “Ligar radar agora”.";
-    $("#gpsAcc").textContent = "GPS: --";
+    $("#speed").textContent = "--"; box.className = "";
+    setSign(badge, null); setSign(rl, null);
+    $("#roadName").textContent = cfg.auto ? "Liga sozinho quando você dirigir" : "Radar desligado";
+    card.className = "idle"; $("#radarIco").textContent = "📷"; $("#radarDist").textContent = "—";
+    $("#radarTxt").textContent = "Radar desligado"; $("#radarBar").style.width = "0";
+    $("#gpsAcc").textContent = "GPS: --"; $("#mapInfo").textContent = "";
     return;
   }
   $("#speed").textContent = s.gps ? s.kmh : "--";
-  $("#gpsAcc").textContent = s.acc >= 0 ? "GPS: ±" + s.acc + " m" : "GPS: procurando…";
+  $("#gpsAcc").textContent = s.acc >= 0 ? "GPS ±" + s.acc + " m" : "GPS: procurando…";
+  $("#mapInfo").textContent = s.naRua ? "rua reconhecida" : (s.mapa || "");
   $("#radCount").textContent = s.count + " radares";
-  box.classList.toggle("over", !!s.over);
-  if (s.dist >= 0 && s.dist <= s.aviso){
-    badge.className = s.lim ? "" : "none"; badge.textContent = s.lim || "?";
-    $("#radarTxt").innerHTML = `<div class="big">${s.dist} m</div><b>${TIPO_NOME[s.tipo] || "Radar"}</b> · ${s.lim ? "limite " + s.lim + " km/h" : "limite não informado"}<br><span class="small">${esc(s.desc || "")}</span>`;
+  $("#roadName").textContent = !s.gps ? "Procurando GPS…" : (s.road || (s.naRua ? "Rua sem nome" : "Rua não reconhecida"));
+  setSign(rl, s.roadLim);
+  box.className = s.over ? "over" : (s.overRoad ? "warn" : "");
+  if (near){
+    const nome = TIPO_NOME[s.tipo] || "Radar";
+    $("#radarIco").textContent = s.tipo === "lombada" ? "〰️" : s.tipo === "semaforo" ? "🚦" : "📷";
+    $("#radarDist").textContent = s.dist + " m";
+    $("#radarTxt").textContent = nome + (s.desc ? " · " + s.desc : "");
+    setSign(badge, s.lim);
+    card.className = s.over ? "over" : "near";
     $("#radarBar").style.width = Math.max(0, Math.min(100, 100 - s.dist / s.aviso * 100)) + "%";
   } else {
-    badge.className = "none"; badge.textContent = "--"; $("#radarBar").style.width = "0";
-    $("#radarTxt").textContent = !s.gps ? "Procurando sinal do GPS…" : s.dist >= 0 ? `Radar a ${s.dist} m (fora do raio de aviso)` : "Nenhum radar à frente no raio de " + s.aviso + " m.";
+    card.className = "idle"; setSign(badge, null); $("#radarBar").style.width = "0";
+    $("#radarIco").textContent = "📷"; $("#radarDist").textContent = "—";
+    $("#radarTxt").textContent = !s.gps ? "Procurando sinal do GPS…" : "Sem radar à frente";
   }
 }
 if (NATIVE){
   $("#autoCard").style.display = "block";
-  $("#radarHint").textContent = "Pode apagar a tela ou abrir o Waze/Spotify: os avisos continuam por voz. Na notificação dá pra marcar radar ou parar.";
+  $("#radarHint").textContent = "Pode apagar a tela ou abrir o Waze: os avisos continuam.";
   $("#cfgAuto").checked = cfg.auto;
   $("#cfgAuto").onchange = e => { cfg.auto = e.target.checked; saveCfg(); renderPerm(); pollNative(); };
   $("#btnPerm").onclick = () => Android.setupPermissions();
