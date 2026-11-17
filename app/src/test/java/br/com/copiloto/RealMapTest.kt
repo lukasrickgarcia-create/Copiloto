@@ -16,15 +16,19 @@ import java.net.URLEncoder
 class RealMapTest {
 
     private fun overpass(q: String): String? {
-        for (u in listOf("https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter")) {
+        val urls = listOf("https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter",
+            "https://maps.mail.ru/osm/tools/overpass/api/interpreter", "https://overpass.kumi.systems/api/interpreter")
+        for (tentativa in 0 until 2) for (u in urls) {
             try {
                 val c = URL(u).openConnection() as HttpURLConnection
                 c.connectTimeout = 20000; c.readTimeout = 90000
                 c.requestMethod = "POST"; c.doOutput = true
                 c.setRequestProperty("User-Agent", "Copiloto-test")
                 c.outputStream.use { it.write(("data=" + URLEncoder.encode(q, "UTF-8")).toByteArray()) }
+                println("Overpass $u -> ${c.responseCode}")
                 if (c.responseCode == 200) return c.inputStream.bufferedReader().readText()
-            } catch (e: Exception) { }
+            } catch (e: Exception) { println("Overpass $u -> erro ${e.message}") }
+            Thread.sleep(3000)
         }
         return null
     }
@@ -57,6 +61,7 @@ class RealMapTest {
         val ways = load()
         val net = RoadNet(ways)
         val paulista = ways.filter { it.name == "Avenida Paulista" && it.oneway != 0 }.maxByOrNull { it.nodes.size }
+        println("Mapa: ${ways.size} vias; Paulista mão única: ${ways.count { it.name == "Avenida Paulista" && it.oneway != 0 }}")
         Assume.assumeTrue("Avenida Paulista não encontrada", paulista != null)
         val p = paulista!!
         val dir = p.oneway
